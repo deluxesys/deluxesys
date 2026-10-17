@@ -1067,9 +1067,78 @@ function MainApp() {
   );
 }
 
+// ==========================================
+// PORTAL PÚBLICO INDEPENDIENTE
+// ==========================================
+function PortalPublico() {
+  const { empresa, ordenes } = useApp();
+  const [codigoConsulta, setCodigoConsulta] = useState('');
+  const [ordenConsultaResult, setOrdenConsultaResult] = useState(null);
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-slate-100 font-sans">
+      <div className="max-w-xl w-full mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl text-center">
+        {empresa.logoUrl && <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain mx-auto rounded-xl bg-slate-800 p-1 border border-slate-700 mb-4" />}
+        <h2 className="text-xl font-bold text-white mb-1">{empresa.nombre}</h2>
+        <p className="text-xs text-slate-400 mb-6">Portal Público de Consulta de Estado de Reparación</p>
+        
+        <div className="flex gap-2">
+          <input
+            placeholder="Ingresa tu Código (ej. TK-89A1)"
+            className="flex-1 bg-slate-800 border border-slate-700 p-3 rounded-xl text-sm text-white text-center font-bold font-mono tracking-wider uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            value={codigoConsulta}
+            onChange={e => setCodigoConsulta(e.target.value.toUpperCase())}
+          />
+          <button
+            onClick={() => {
+              const clean = codigoConsulta.trim().toUpperCase();
+              const res = ordenes.find(o => o.codigo_seguimiento.toUpperCase() === clean);
+              setOrdenConsultaResult(res || 'NO_ENCONTRADO');
+            }}
+            className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-xl text-sm font-bold transition shadow-lg shadow-indigo-600/30"
+          >
+            Consultar
+          </button>
+        </div>
+
+        {ordenConsultaResult && ordenConsultaResult !== 'NO_ENCONTRADO' && (
+          <div className="text-left bg-slate-800/60 p-5 rounded-xl border border-slate-700 space-y-3 text-sm mt-6">
+            <div className="flex justify-between items-center border-b border-slate-700 pb-3">
+              <span className="font-bold text-indigo-400">Estado: {ordenConsultaResult.estado}</span>
+              <span className="font-mono text-xs text-amber-400 bg-amber-950/30 px-2 py-1 rounded border border-amber-800/40">Código: {ordenConsultaResult.codigo_seguimiento}</span>
+            </div>
+            <p><strong className="text-white">Equipo:</strong> {ordenConsultaResult.tipo_equipo} {ordenConsultaResult.marca_modelo}</p>
+            <p><strong className="text-white">Diagnóstico Técnico:</strong> {ordenConsultaResult.diagnostico || 'Equipo en proceso de revisión.'}</p>
+            <p><strong className="text-white">Presupuesto Estimado:</strong> $ {(ordenConsultaResult.valor_estimado || 0).toLocaleString('es-CO')}</p>
+
+            <div className="pt-3 border-t border-slate-700/60 space-y-2">
+              <p className="font-bold text-slate-400 text-xs">Bitácora de Avance:</p>
+              {(ordenConsultaResult.observaciones || []).map((obs, idx) => (
+                <div key={idx} className="text-xs text-slate-300 bg-slate-900/50 p-2 rounded border border-slate-800">
+                  <span className="text-slate-500 font-semibold">{obs.fecha}:</span> {obs.texto}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {ordenConsultaResult === 'NO_ENCONTRADO' && (
+          <p className="text-sm font-semibold text-rose-400 mt-6 bg-rose-950/30 p-3 rounded-xl">No se encontró ninguna orden con ese código. Verifica e intenta nuevamente.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // COMPONENTE CONTENEDOR RAÍZ
 function AppContent() {
   const { usuarioSesion } = useApp();
+  
+  // Condición clave: Si la URL es /portal, muestra la consulta SIN pedir login
+  if (window.location.pathname === '/portal') {
+    return <PortalPublico />;
+  }
+  
+  // Si es cualquier otra URL, protege con Login
   return usuarioSesion ? <MainApp /> : <LoginScreen />;
 }
 
