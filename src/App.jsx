@@ -321,12 +321,6 @@ function LoginScreen() {
           </button>
         </form>
 
-        <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
-          <p className="font-bold text-slate-300">🔑 Credenciales de Prueba por Defecto:</p>
-          <p>• Admin: <span className="text-indigo-300 font-mono">admin</span> / <span className="text-indigo-300 font-mono">admin123</span></p>
-          <p>• Técnico: <span className="text-indigo-300 font-mono">tecnico</span> / <span className="text-indigo-300 font-mono">tecnico123</span></p>
-          <p>• Recepción: <span className="text-indigo-300 font-mono">recepcion</span> / <span className="text-indigo-300 font-mono">123456</span></p>
-        </div>
       </div>
     </div>
   );
