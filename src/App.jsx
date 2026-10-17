@@ -79,18 +79,24 @@ export function AppProvider({ children }) {
 
   const agregarCliente = async (data) => {
     const { data: insertado, error } = await supabase.from('clientes').insert([data]).select();
-    if (error || !insertado) return alert('Error guardando cliente.');
+    if (error || !insertado) {
+      alert('Error guardando cliente.');
+      return null;
+    }
     setClientes(prev => [insertado[0], ...prev]);
     return insertado[0];
   };
 
   const modificarCliente = async (id, data) => {
     const { error } = await supabase.from('clientes').update(data).eq('id', id);
-    if (!error) setClientes(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+    if (!error) {
+      setClientes(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+    } else {
+      alert('Error actualizando cliente.');
+    }
   };
 
   const agregarOrden = async (ordenData, clienteSeleccionado) => {
-    // Estructura simplificada y compatible con cualquier tabla básica de órdenes
     const nueva = {
       codigo_seguimiento: generarCodigoSeguimiento(),
       cliente_nombre: clienteSeleccionado.nombre,
@@ -105,7 +111,8 @@ export function AppProvider({ children }) {
     const { data: insertada, error } = await supabase.from('ordenes').insert([nueva]).select();
     if (error) {
       console.error("Error Supabase:", error);
-      return alert(`Error guardando la orden en la nube: ${error.message}`);
+      alert(`Error guardando la orden en la nube: ${error.message}`);
+      return null;
     }
     setOrdenes(prev => [insertada[0], ...prev]);
     return insertada[0];
@@ -130,7 +137,8 @@ export function AppProvider({ children }) {
       cliente_nombre: orden.cliente_nombre,
       fecha: new Date().toISOString().split('T')[0],
       total: orden.valor_estimado || 0,
-      tipo: 'Servicio Técnico'
+      tipo: 'Servicio Técnico',
+      items: [{ descripcion: `Servicio Técnico (${orden.tipo_equipo} ${orden.marca_modelo})`, cantidad: 1, precio: orden.valor_estimado || 0 }]
     };
 
     const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
@@ -147,11 +155,17 @@ export function AppProvider({ children }) {
       cliente_nombre: clienteNombre || 'Cliente Mostrador',
       fecha: new Date().toISOString().split('T')[0],
       total: totalCalculado,
-      tipo: 'Venta de Repuestos'
+      tipo: 'Venta de Repuestos',
+      items: itemsArray
     };
 
     const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
-    if (!error && insertada) { setFacturas(prev => [insertada[0], ...prev]); return insertada[0]; }
+    if (!error && insertada) { 
+      setFacturas(prev => [insertada[0], ...prev]); 
+      return insertada[0]; 
+    } else {
+      alert('Error al generar la venta directa.');
+    }
   };
 
   const agregarRol = async (nombreRol, permisosObj) => {
@@ -255,12 +269,18 @@ function MainApp() {
   const [modalVenta, setModalVenta] = useState(false);
   const [facturaSeleccionada, setFacturaSeleccionada] = useState(null);
   const [documentoImprimir, setDocumentoImprimir] = useState(null);
+  
   const [tipoClienteOpt, setTipoClienteOpt] = useState('EXISTENTE');
   const [busquedaCliente, setBusquedaCliente] = useState('');
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   const [formOrden, setFormOrden] = useState({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0 });
   const [editOrdForm, setEditOrdForm] = useState({ estado: '', diagnostico: '', costo: 0 });
+  
+  // Venta directa
+  const [clienteVenta, setClienteVenta] = useState('');
+  const [itemsVenta, setItemsVenta] = useState([{ descripcion: '', cantidad: 1, precio: 0 }]);
+
   const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } });
   const [formUsuarioNuevo, setFormUsuarioNuevo] = useState({ nombre: '', usuario: '', clave: '', rolId: roles[0]?.id || '' });
 
@@ -458,7 +478,14 @@ function MainApp() {
               <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Cliente</th><th className="p-3">Teléfono</th><th className="p-3 text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-slate-800">
                 {clientes.map(c => (
-                  <tr key={c.id} className="hover:bg-slate-800/40"><td className="p-3 font-bold text-white">{c.nombre}</td><td className="p-3 text-indigo-400">{c.telefono}</td><td className="p-3 text-right space-x-1">{permisos.editar_clientes && <button onClick={() => { setModalEditCliente(c); setFormNuevoCliente(c); }} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">✏️ Editar</button>}<button onClick={() => setVerHistorialCliente(c)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">📜 Historial</button></td></tr>
+                  <tr key={c.id} className="hover:bg-slate-800/40">
+                    <td className="p-3 font-bold text-white">{c.nombre}</td>
+                    <td className="p-3 text-indigo-400">{c.telefono}</td>
+                    <td className="p-3 text-right space-x-1">
+                      {permisos.editar_clientes && <button onClick={() => { setModalEditCliente(c); setFormNuevoCliente({ nombre: c.nombre || '', telefono: c.telefono || '', cedula: c.cedula || '', email: c.email || '', direccion: c.direccion || '' }); }} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">✏️ Editar</button>}
+                      <button onClick={() => setVerHistorialCliente(c)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">📜 Historial</button>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -473,14 +500,23 @@ function MainApp() {
               <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Factura</th><th className="p-3">Fecha</th><th className="p-3">Cliente</th><th className="p-3">Total</th><th className="p-3 text-right">Detalle</th></tr></thead>
               <tbody className="divide-y divide-slate-800">
                 {facturas.map(f => (
-                  <tr key={f.id} className="hover:bg-slate-800/40"><td className="p-3 font-bold text-emerald-400">{f.numero_factura}</td><td className="p-3 text-slate-400">{f.fecha}</td><td className="p-3 font-medium text-white">{f.cliente_nombre}</td><td className="p-3 font-extrabold text-white">$ {(f.total || 0).toLocaleString('es-CO')}</td><td className="p-3 text-right space-x-1"><button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button><button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button></td></tr>
+                  <tr key={f.id} className="hover:bg-slate-800/40">
+                    <td className="p-3 font-bold text-emerald-400">{f.numero_factura}</td>
+                    <td className="p-3 text-slate-400">{f.fecha}</td>
+                    <td className="p-3 font-medium text-white">{f.cliente_nombre}</td>
+                    <td className="p-3 font-extrabold text-white">$ {(f.total || 0).toLocaleString('es-CO')}</td>
+                    <td className="p-3 text-right space-x-1">
+                      <button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button>
+                      <button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
 
-        {/* 5. PORTAL DEL CLIENTE INTERNO (NUEVO) */}
+        {/* 5. PORTAL DEL CLIENTE INTERNO */}
         {tab === 'portal' && (
           <div className="max-w-xl mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4 text-center">
             {empresa.logoUrl && <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain mx-auto rounded-xl bg-slate-800 p-1 border border-slate-700" />}
@@ -563,26 +599,189 @@ function MainApp() {
 
       </main>
 
-      {/* MODALES REUTILIZADOS */}
+      {/* MODALES ADICIONALES RESTAURADOS */}
+      
+      {/* 1. Modal Editar Diagnóstico */}
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-3">
             <h3 className="font-bold text-white text-base">Modificar Orden</h3>
-            <select className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.estado} onChange={e => setEditOrdForm({ ...editOrdForm, estado: e.target.value })}><option value="Ingresado">Ingresado</option><option value="En Diagnóstico">En Diagnóstico</option><option value="Esperando Repuesto">Esperando Repuesto</option><option value="Reparado / Listo">Reparado / Listo</option><option value="Entregado / Facturado">Entregado / Facturado</option></select>
+            <select className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.estado} onChange={e => setEditOrdForm({ ...editOrdForm, estado: e.target.value })}>
+              <option value="Ingresado">Ingresado</option>
+              <option value="En Diagnóstico">En Diagnóstico</option>
+              <option value="Esperando Repuesto">Esperando Repuesto</option>
+              <option value="Reparado / Listo">Reparado / Listo</option>
+              <option value="Entregado / Facturado">Entregado / Facturado</option>
+            </select>
             <textarea className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" rows={2} value={editOrdForm.diagnostico} onChange={e => setEditOrdForm({ ...editOrdForm, diagnostico: e.target.value })} placeholder="Diagnóstico técnico..." />
             <input type="number" className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.costo} onChange={e => setEditOrdForm({ ...editOrdForm, costo: e.target.value })} placeholder="Costo..." />
-            <div className="flex justify-end gap-2 pt-2"><button onClick={() => setModalEditOrden(null)} className="text-xs text-slate-400 px-3">Cancelar</button><button onClick={async () => { await actualizarOrden(modalEditOrden.id, editOrdForm.estado, '', editOrdForm.diagnostico, editOrdForm.costo); setModalEditOrden(null); }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar</button></div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setModalEditOrden(null)} className="text-xs text-slate-400 px-3">Cancelar</button>
+              <button onClick={async () => { await actualizarOrden(modalEditOrden.id, editOrdForm.estado, '', editOrdForm.diagnostico, editOrdForm.costo); setModalEditOrden(null); }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar</button>
+            </div>
           </div>
         </div>
       )}
 
+      {/* 2. Modal Editar / Crear Cliente */}
+      {modalEditCliente && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-3">
+            <h3 className="font-bold text-white text-base">{modalEditCliente.id ? 'Modificar Cliente' : 'Nuevo Cliente'}</h3>
+            <input placeholder="Nombre *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.nombre} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, nombre: e.target.value })} />
+            <input placeholder="Teléfono *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.telefono} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono: e.target.value })} />
+            <input placeholder="Cédula / NIT" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.cedula} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, cedula: e.target.value })} />
+            <input placeholder="Dirección" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.direccion} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, direccion: e.target.value })} />
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setModalEditCliente(null)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
+              <button onClick={async () => {
+                if (!formNuevoCliente.nombre || !formNuevoCliente.telefono) return alert('Nombre y teléfono son obligatorios.');
+                if (modalEditCliente.id) {
+                  await modificarCliente(modalEditCliente.id, formNuevoCliente);
+                } else {
+                  await agregarCliente(formNuevoCliente);
+                }
+                setModalEditCliente(null);
+              }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Modal Historial de Cliente */}
+      {verHistorialCliente && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3">
+            <h3 className="font-bold text-white text-base">Historial de: <span className="text-indigo-400">{verHistorialCliente.nombre}</span></h3>
+            <div className="space-y-2 text-xs max-h-60 overflow-y-auto">
+              <p className="font-bold text-slate-400 uppercase">Órdenes Registradas:</p>
+              {ordenes.filter(o => o.cliente_nombre === verHistorialCliente.nombre).length > 0 ? (
+                ordenes.filter(o => o.cliente_nombre === verHistorialCliente.nombre).map(o => (
+                  <div key={o.id} className="p-2 bg-slate-800 rounded border border-slate-700">
+                    <p className="font-bold text-white">Código: {o.codigo_seguimiento} | Estado: {o.estado}</p>
+                    <p className="text-slate-400">{o.tipo_equipo} {o.marca_modelo} - Fallo: {o.fallo_reportado}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-slate-500">Este cliente no tiene órdenes registradas aún.</p>
+              )}
+            </div>
+            <div className="flex justify-end pt-2">
+              <button onClick={() => setVerHistorialCliente(null)} className="bg-slate-800 text-white px-4 py-1.5 rounded-xl text-xs">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Modal Venta Directa */}
+      {modalVenta && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4">
+            <h3 className="font-bold text-white text-base">Emitir Venta Directa / Repuesto</h3>
+            <input placeholder="Nombre del Cliente" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={clienteVenta} onChange={e => setClienteVenta(e.target.value)} />
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-400 uppercase">Artículos / Ítems</label>
+              {itemsVenta.map((it, idx) => (
+                <div key={idx} className="flex gap-2">
+                  <input placeholder="Descripción repuesto..." className="flex-1 bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={it.descripcion} onChange={e => { const n = [...itemsVenta]; n[idx].descripcion = e.target.value; setItemsVenta(n); }} />
+                  <input type="number" placeholder="Cant." className="w-16 bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white text-center" value={it.cantidad} onChange={e => { const n = [...itemsVenta]; n[idx].cantidad = Number(e.target.value); setItemsVenta(n); }} />
+                  <input type="number" placeholder="Precio ($)" className="w-28 bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={it.precio} onChange={e => { const n = [...itemsVenta]; n[idx].precio = Number(e.target.value); setItemsVenta(n); }} />
+                </div>
+              ))}
+              <button type="button" onClick={() => setItemsVenta([...itemsVenta, { descripcion: '', cantidad: 1, precio: 0 }])} className="text-xs text-indigo-400 font-bold hover:underline">+ Añadir otro ítem</button>
+            </div>
+
+            <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+              <span className="font-bold text-xs text-white">Total Calculado:</span>
+              <span className="font-extrabold text-emerald-400 text-base">$ {itemsVenta.reduce((acc, i) => acc + (i.cantidad * i.precio), 0).toLocaleString('es-CO')}</span>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setModalVenta(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
+              <button onClick={async () => {
+                const total = itemsVenta.reduce((acc, i) => acc + (i.cantidad * i.precio), 0);
+                if (total <= 0) return alert('Ingresa ítems con precio mayor a 0');
+                const fac = await agregarVentaDirecta(clienteVenta, itemsVenta, total);
+                setModalVenta(false);
+                if(fac) {
+                  alert('¡Venta realizada!');
+                  setDocumentoImprimir({ tipo: 'FACTURA', data: fac });
+                }
+              }} className="bg-emerald-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Generar Factura</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Modal Ver Detalle de Factura */}
+      {facturaSeleccionada && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+              <h3 className="font-bold text-white text-base">Detalle de {facturaSeleccionada.numero_factura}</h3>
+              <span className="text-xs font-bold text-emerald-400">{facturaSeleccionada.fecha}</span>
+            </div>
+            <p className="text-xs text-slate-300"><strong>Cliente:</strong> {facturaSeleccionada.cliente_nombre}</p>
+            <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
+
+            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-800 text-slate-400">
+                  <tr>
+                    <th className="p-2">Ítem</th>
+                    <th className="p-2 text-center">Cant.</th>
+                    <th className="p-2 text-right">Precio</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {(facturaSeleccionada.items || []).map((it, idx) => (
+                    <tr key={idx}>
+                      <td className="p-2 text-[11px]">{it.descripcion}</td>
+                      <td className="p-2 text-center text-[11px]">{it.cantidad}</td>
+                      <td className="p-2 text-right text-[11px]">$ {(it.precio || 0).toLocaleString('es-CO')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+              <span className="font-bold text-xs text-white">Total Cobrado:</span>
+              <span className="font-extrabold text-indigo-400 text-base">$ {(facturaSeleccionada.total || 0).toLocaleString('es-CO')}</span>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setFacturaSeleccionada(null)} className="bg-slate-800 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Documento Impreso PDF */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
           <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl">
             <div id="seccion-impresion" className="space-y-4 text-sm">
               <div className="flex justify-between"><h1 className="font-black text-xl">{empresa.nombre}</h1><h2 className="font-extrabold text-indigo-600">DOCUMENTO OFICIAL</h2></div>
               {documentoImprimir.tipo === 'ORDEN' && (<div className="space-y-2"><p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p><p><strong>Código Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p><p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo}</p><p><strong>Fallo:</strong> {documentoImprimir.data.fallo_reportado}</p></div>)}
-              {documentoImprimir.tipo === 'FACTURA' && (<div className="space-y-2"><p><strong>Factura:</strong> {documentoImprimir.data.numero_factura}</p><p><strong>Total:</strong> ${(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p></div>)}
+              {documentoImprimir.tipo === 'FACTURA' && (
+                <div className="space-y-2 text-xs">
+                  <p><strong>Factura:</strong> {documentoImprimir.data.numero_factura}</p>
+                  <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+                  <table className="w-full text-left border border-slate-300 mt-2">
+                    <thead className="bg-slate-100">
+                      <tr><th className="p-2 border">Descripción</th><th className="p-2 text-center border">Cant.</th><th className="p-2 text-right border">Precio</th></tr>
+                    </thead>
+                    <tbody>
+                      {(documentoImprimir.data.items || []).map((it, idx) => (
+                        <tr key={idx}><td className="p-2 border">{it.descripcion}</td><td className="p-2 text-center border">{it.cantidad}</td><td className="p-2 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="font-black text-emerald-600 text-base text-right mt-2">Total: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-2 pt-4 no-imprimir"><button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3">Cerrar</button><button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Imprimir</button></div>
           </div>
