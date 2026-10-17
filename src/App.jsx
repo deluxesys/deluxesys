@@ -111,6 +111,7 @@ export function AppProvider({ children }) {
       serie: ordenData.serie || '',
       fallo_reportado: ordenData.fallo_reportado,
       valor_estimado: Number(ordenData.valor_estimado) || 0,
+      total_pagar: 0,
       estado: 'Ingresado',
       observaciones: [{ fecha: new Date().toLocaleString('es-CO'), texto: 'Orden de entrada registrada.' }]
     };
@@ -125,7 +126,7 @@ export function AppProvider({ children }) {
     return insertada[0];
   };
 
-  const actualizarOrden = async (id, estado, obs, diag, costo, remisionAsociada = null) => {
+  const actualizarOrden = async (id, estado, obs, diag, presupuesto, totalPagar, remisionAsociada = null) => {
     const ordenObj = ordenes.find(o => o.id === id);
     if (!ordenObj) return;
 
@@ -137,7 +138,8 @@ export function AppProvider({ children }) {
     const updateData = {
       estado,
       diagnostico: diag !== undefined ? diag : ordenObj.diagnostico,
-      valor_estimado: costo !== undefined ? Number(costo) : ordenObj.valor_estimado,
+      valor_estimado: presupuesto !== undefined ? Number(presupuesto) : ordenObj.valor_estimado,
+      total_pagar: totalPagar !== undefined ? Number(totalPagar) : (ordenObj.total_pagar || 0),
       observaciones: obsArr,
       ...(remisionAsociada ? { numero_factura_asociada: remisionAsociada } : {})
     };
@@ -150,27 +152,28 @@ export function AppProvider({ children }) {
     }
   };
 
-  const facturarOrden = async (orden, idConsecutivoStr) => {
+  const remisionarOrden = async (orden, idConsecutivoStr) => {
     const cliEncontrado = clientes.find(c => c.nombre.toLowerCase() === orden.cliente_nombre.toLowerCase());
     const telCliente = cliEncontrado ? cliEncontrado.telefono : (orden.cliente_telefono || 'N/A');
     const numRemisionGenerado = idConsecutivoStr;
+    const valorCobro = orden.total_pagar > 0 ? orden.total_pagar : (orden.valor_estimado || 0);
 
     const nuevaFac = {
       numero_factura: numRemisionGenerado,
       cliente_nombre: orden.cliente_nombre,
       cliente_telefono: telCliente,
       fecha: new Date().toISOString().split('T')[0],
-      total: orden.valor_estimado || 0,
+      total: valorCobro,
       tipo: 'Servicio Técnico',
       items: [
-        { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${orden.fallo_reportado} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: orden.valor_estimado || 0 }
+        { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${orden.fallo_reportado} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: valorCobro }
       ]
     };
 
     const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
     if (!error && insertada) {
       setFacturas(prev => [insertada[0], ...prev]);
-      await actualizarOrden(orden.id, 'Entregado / Remisionado', 'Equipo entregado y remisionado bajo ' + numRemisionGenerado, orden.diagnostico, orden.valor_estimado, numRemisionGenerado);
+      await actualizarOrden(orden.id, 'Entregado / Remisionado', 'Equipo entregado y remisionado bajo ' + numRemisionGenerado, orden.diagnostico, orden.valor_estimado, valorCobro, numRemisionGenerado);
       return insertada[0];
     } else {
       console.error(error);
@@ -232,7 +235,7 @@ export function AppProvider({ children }) {
       usuarioSesion, login, logout, rolActual,
       clientes, agregarCliente, modificarCliente,
       ordenes, agregarOrden, actualizarOrden,
-      facturas, facturarOrden, agregarVentaDirecta
+      facturas, remisionarOrden, agregarVentaDirecta
     }}>
       {children}
     </AppContext.Provider>
@@ -294,7 +297,7 @@ function MainApp() {
     empresa, clientes, ordenes, facturas, roles, agregarRol, usuarios, agregarUsuario,
     usuarioSesion, logout, rolActual,
     agregarCliente, modificarCliente, agregarOrden, actualizarOrden,
-    facturarOrden, agregarVentaDirecta, setEmpresa
+    remisionarOrden, agregarVentaDirecta, setEmpresa
   } = useApp();
 
   const [tab, setTab] = useState('ordenes');
@@ -310,7 +313,7 @@ function MainApp() {
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   const [formOrden, setFormOrden] = useState({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0 });
-  const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', costo: 0 });
+  const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', presupuesto: 0, totalPagar: 0 });
   
   const [tipoClienteVentaOpt, setTipoClienteVentaOpt] = useState('EXISTENTE');
   const [busquedaClienteVenta, setBusquedaClienteVenta] = useState('');
@@ -502,23 +505,19 @@ function MainApp() {
                         <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
                         <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
                         <td className="p-3 font-bold text-white">
-                          {o.valor_estimado ? (
-                            <div>
-                              <span className="text-slate-400 text-[11px] block">Presupuesto: $ {Number(o.valor_estimado).toLocaleString('es-CO')}</span>
-                              {(o.estado === 'Reparado / Listo' || o.estado === 'Entregado / Remisionado') && (
-                                <span className="text-emerald-400 text-[11px] block">Total a Pagar: $ {Number(o.valor_estimado).toLocaleString('es-CO')}</span>
-                              )}
-                            </div>
-                          ) : '-'}
+                          <div className="space-y-0.5">
+                            <span className="text-slate-400 text-[11px] block">Presupuesto: {o.valor_estimado ? `$ ${Number(o.valor_estimado).toLocaleString('es-CO')}` : '-'}</span>
+                            <span className="text-emerald-400 text-[11px] block">Total Pagar: {o.total_pagar ? `$ ${Number(o.total_pagar).toLocaleString('es-CO')}` : '-'}</span>
+                          </div>
                           {o.numero_factura_asociada && (
-                            <span className="block text-[11px] text-indigo-400 font-mono mt-0.5">Remisión: {o.numero_factura_asociada}</span>
+                            <span className="block text-[11px] text-indigo-400 font-mono mt-1">Remisión: {o.numero_factura_asociada}</span>
                           )}
                         </td>
                         <td className="p-3 text-right space-x-1">
-                          {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
+                          {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', presupuesto: o.valor_estimado || 0, totalPagar: o.total_pagar || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                           <button onClick={() => enviarWhatsApp(o, idRegistroConsecutivo)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
                           <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o, idConsecutivo: idRegistroConsecutivo })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
-                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={async () => { const fac = await facturarOrden(o, idRegistroConsecutivo); if(fac){ alert('¡Remisión Generada!'); setDocumentoImprimir({ tipo: 'FACTURA', data: fac, idConsecutivo: idRegistroConsecutivo }); } }} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
+                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={async () => { const fac = await remisionarOrden(o, idRegistroConsecutivo); if(fac){ alert('¡Remisión Generada!'); setDocumentoImprimir({ tipo: 'FACTURA', data: fac, idConsecutivo: idRegistroConsecutivo }); } }} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
                         </td>
                       </tr>
                     );
@@ -551,7 +550,7 @@ function MainApp() {
           </div>
         )}
 
-        {/* 4. FACTURACIÓN / REMISIONES */}
+        {/* 4. REMISIONES Y VENTAS */}
         {tab === 'facturacion' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
             <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-white">Remisiones y Ventas</h2><button onClick={() => { setModalVenta(true); setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); }} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button></div>
@@ -623,8 +622,8 @@ function MainApp() {
                   <p><strong className="text-white">Presupuesto Estimado:</strong> $ {Number(clienteSeleccionado.valor_estimado).toLocaleString('es-CO')}</p>
                 )}
 
-                {(clienteSeleccionado.estado === 'Reparado / Listo' || clienteSeleccionado.estado === 'Entregado / Remisionado') && Number(clienteSeleccionado.valor_estimado) > 0 && (
-                  <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Total a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(clienteSeleccionado.valor_estimado).toLocaleString('es-CO')}</span></p>
+                {Number(clienteSeleccionado.total_pagar) > 0 && (
+                  <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Total a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(clienteSeleccionado.total_pagar).toLocaleString('es-CO')}</span></p>
                 )}
 
                 {/* HISTORIAL DESPLEGABLE */}
@@ -748,15 +747,22 @@ function MainApp() {
               <input className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={editOrdForm.observacion} onChange={e => setEditOrdForm({ ...editOrdForm, observacion: e.target.value })} placeholder="Ej. Se reparó conector de carga..." />
             </div>
 
-            <div>
-              <label className="text-[11px] text-slate-400 block mb-1">Presupuesto / Total ($)</label>
-              <input type="number" className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.costo} onChange={e => setEditOrdForm({ ...editOrdForm, costo: e.target.value })} />
+            {/* CAMPOS SEPARADOS */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Presupuesto Estimado ($)</label>
+                <input type="number" className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.presupuesto} onChange={e => setEditOrdForm({ ...editOrdForm, presupuesto: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[11px] text-emerald-400 font-bold block mb-1">Total a Pagar ($)</label>
+                <input type="number" className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white font-bold text-emerald-300" value={editOrdForm.totalPagar} onChange={e => setEditOrdForm({ ...editOrdForm, totalPagar: e.target.value })} />
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setModalEditOrden(null)} className="text-xs text-slate-400 px-3">Cancelar</button>
               <button onClick={async () => { 
-                await actualizarOrden(modalEditOrden.id, editOrdForm.estado, editOrdForm.observacion, editOrdForm.diagnostico, editOrdForm.costo); 
+                await actualizarOrden(modalEditOrden.id, editOrdForm.estado, editOrdForm.observacion, editOrdForm.diagnostico, editOrdForm.presupuesto, editOrdForm.totalPagar); 
                 setModalEditOrden(null); 
               }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar Cambios</button>
             </div>
@@ -993,8 +999,8 @@ function MainApp() {
                     <p><strong>Presupuesto Estimado:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
                   )}
 
-                  {(documentoImprimir.data.estado === 'Reparado / Listo' || documentoImprimir.data.estado === 'Entregado / Remisionado') && Number(documentoImprimir.data.valor_estimado) > 0 && (
-                    <p className="font-bold text-emerald-700"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
+                  {Number(documentoImprimir.data.total_pagar) > 0 && (
+                    <p className="font-bold text-emerald-700"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
                   )}
 
                   {Array.isArray(documentoImprimir.data.observaciones) && documentoImprimir.data.observaciones.length > 0 && (
@@ -1099,8 +1105,8 @@ function PortalPublico() {
               <p className="text-white"><strong>Presupuesto Estimado:</strong> $ {Number(ordenConsultaResult.valor_estimado).toLocaleString('es-CO')}</p>
             )}
 
-            {(ordenConsultaResult.estado === 'Reparado / Listo' || ordenConsultaResult.estado === 'Entregado / Remisionado') && Number(ordenConsultaResult.valor_estimado) > 0 && (
-              <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Total a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(ordenConsultaResult.valor_estimado).toLocaleString('es-CO')}</span></p>
+            {Number(ordenConsultaResult.total_pagar) > 0 && (
+              <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Total a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(ordenConsultaResult.total_pagar).toLocaleString('es-CO')}</span></p>
             )}
 
             {/* HISTORIAL DESPLEGABLE EN PORTAL PÚBLICO */}
