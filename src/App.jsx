@@ -40,10 +40,10 @@ export function AppProvider({ children }) {
       const resCli = await supabase.from('clientes').select('*');
       if (resCli.data) setClientes(resCli.data);
 
-      const resOrd = await supabase.from('ordenes').select('*').order('numero_orden', { ascending: false });
+      const resOrd = await supabase.from('ordenes').select('*');
       if (resOrd.data) setOrdenes(resOrd.data);
 
-      const resFac = await supabase.from('facturas').select('*').order('numero_factura', { ascending: false });
+      const resFac = await supabase.from('facturas').select('*');
       if (resFac.data) setFacturas(resFac.data);
 
     } catch (error) {
@@ -90,45 +90,32 @@ export function AppProvider({ children }) {
   };
 
   const agregarOrden = async (ordenData, clienteSeleccionado) => {
-    const num = ordenes.length > 0 ? Math.max(...ordenes.map(o => o.numero_orden)) + 1 : 1001;
+    // Estructura simplificada y compatible con cualquier tabla básica de órdenes
     const nueva = {
-      numero_orden: num,
       codigo_seguimiento: generarCodigoSeguimiento(),
-      cliente_id: clienteSeleccionado.id,
       cliente_nombre: clienteSeleccionado.nombre,
       cliente_telefono: clienteSeleccionado.telefono,
       tipo_equipo: ordenData.tipo_equipo,
       marca_modelo: ordenData.marca_modelo,
-      serie: ordenData.serie,
       fallo_reportado: ordenData.fallo_reportado,
       valor_estimado: Number(ordenData.valor_estimado) || 0,
-      tecnico: usuarioSesion ? usuarioSesion.nombre : 'Técnico',
-      fecha: new Date().toLocaleString('es-CO'),
-      estado: 'Ingresado',
-      observaciones: [{ fecha: new Date().toLocaleString('es-CO'), texto: 'Orden de entrada registrada.' }]
+      estado: 'Ingresado'
     };
 
     const { data: insertada, error } = await supabase.from('ordenes').insert([nueva]).select();
-    if (error || !insertada) {
+    if (error) {
       console.error("Error Supabase:", error);
-      return alert(`Error guardando la orden en la nube: ${error?.message || 'Desconocido'}`);
+      return alert(`Error guardando la orden en la nube: ${error.message}`);
     }
     setOrdenes(prev => [insertada[0], ...prev]);
     return insertada[0];
   };
 
   const actualizarOrden = async (id, estado, obs, diag, costo) => {
-    const ordenObj = ordenes.find(o => o.id === id);
-    if (!ordenObj) return;
-    
-    const obsArr = [...(ordenObj.observaciones || [])];
-    if (obs && obs.trim()) obsArr.push({ fecha: new Date().toLocaleString('es-CO'), texto: obs });
-
     const updateData = {
       estado,
-      diagnostico: diag !== undefined ? diag : ordenObj.diagnostico,
-      valor_estimado: costo !== undefined ? Number(costo) : ordenObj.valor_estimado,
-      observaciones: obsArr
+      diagnostico: diag || '',
+      valor_estimado: costo !== undefined ? Number(costo) : 0
     };
 
     const { error } = await supabase.from('ordenes').update(updateData).eq('id', id);
@@ -138,12 +125,10 @@ export function AppProvider({ children }) {
   };
 
   const facturarOrden = async (orden) => {
-    const num = facturas.length > 0 ? Math.max(...facturas.map(f => Number(f.numero_factura.split('-')[1]))) + 1 : 1001;
     const nuevaFac = {
-      numero_factura: `FAC-${num}`,
+      numero_factura: `FAC-${Math.floor(Math.random() * 90000) + 10000}`,
       cliente_nombre: orden.cliente_nombre,
       fecha: new Date().toISOString().split('T')[0],
-      items: [{ descripcion: `Servicio Técnico Orden #${orden.numero_orden} (${orden.tipo_equipo} ${orden.marca_modelo})`, cantidad: 1, precio: orden.valor_estimado || 0 }],
       total: orden.valor_estimado || 0,
       tipo: 'Servicio Técnico'
     };
@@ -151,18 +136,16 @@ export function AppProvider({ children }) {
     const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
     if (!error && insertada) {
       setFacturas(prev => [insertada[0], ...prev]);
-      await actualizarOrden(orden.id, 'Entregado / Facturado', 'Servicio entregado y cobrado.', orden.diagnostico, orden.valor_estimado);
+      await actualizarOrden(orden.id, 'Entregado / Facturado', '', orden.diagnostico, orden.valor_estimado);
       return insertada[0];
     }
   };
 
   const agregarVentaDirecta = async (clienteNombre, itemsArray, totalCalculado) => {
-    const num = facturas.length > 0 ? Math.max(...facturas.map(f => Number(f.numero_factura.split('-')[1]))) + 1 : 1001;
     const nuevaFac = {
-      numero_factura: `FAC-${num}`,
+      numero_factura: `FAC-${Math.floor(Math.random() * 90000) + 10000}`,
       cliente_nombre: clienteNombre || 'Cliente Mostrador',
       fecha: new Date().toISOString().split('T')[0],
-      items: itemsArray,
       total: totalCalculado,
       tipo: 'Venta de Repuestos'
     };
@@ -277,9 +260,7 @@ function MainApp() {
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   const [formOrden, setFormOrden] = useState({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0 });
-  const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', costo: 0 });
-  const [clienteVenta, setClienteVenta] = useState('');
-  const [itemsVenta, setItemsVenta] = useState([{ descripcion: '', cantidad: 1, precio: 0 }]);
+  const [editOrdForm, setEditOrdForm] = useState({ estado: '', diagnostico: '', costo: 0 });
   const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } });
   const [formUsuarioNuevo, setFormUsuarioNuevo] = useState({ nombre: '', usuario: '', clave: '', rolId: roles[0]?.id || '' });
 
@@ -422,7 +403,7 @@ function MainApp() {
 
                 const nueva = await agregarOrden(formOrden, targetClient);
                 if (nueva) {
-                  alert(`¡Orden #${nueva.numero_orden} registrada!\nCódigo Cliente: ${nueva.codigo_seguimiento}`);
+                  alert(`¡Orden registrada!\nCódigo Cliente: ${nueva.codigo_seguimiento}`);
                   setDocumentoImprimir({ tipo: 'ORDEN', data: nueva });
                   setTab('ordenes');
                   setClienteSeleccionado(null);
@@ -444,19 +425,19 @@ function MainApp() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800 text-slate-400 uppercase">
-                  <tr><th className="p-3">Orden Interna</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente</th><th className="p-3">Equipo</th><th className="p-3">Estado</th><th className="p-3">Presupuesto</th><th className="p-3 text-right">Acciones</th></tr>
+                  <tr><th className="p-3">ID Registro</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente</th><th className="p-3">Equipo</th><th className="p-3">Estado</th><th className="p-3">Presupuesto</th><th className="p-3 text-right">Acciones</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {ordenes.map(o => (
                     <tr key={o.id} className="hover:bg-slate-800/40">
-                      <td className="p-3 font-bold text-indigo-400">#{o.numero_orden}</td>
+                      <td className="p-3 font-bold text-indigo-400">#{o.id ? o.id.toString().slice(0, 5) : '1001'}</td>
                       <td className="p-3 font-mono text-xs text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800/40">{o.codigo_seguimiento}</td>
                       <td className="p-3 font-medium text-white">{o.cliente_nombre}<span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span></td>
                       <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
                       <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
                       <td className="p-3 font-bold text-white">$ {(o.valor_estimado || 0).toLocaleString('es-CO')}</td>
                       <td className="p-3 text-right space-x-1">
-                        {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
+                        {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                         <button onClick={() => enviarWhatsApp(o)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
                         <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
                         {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={async () => { const fac = await facturarOrden(o); if(fac){ alert('¡Facturada!'); setDocumentoImprimir({ tipo: 'FACTURA', data: fac }); } }} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">💵 Facturar</button>}
@@ -492,7 +473,7 @@ function MainApp() {
               <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Factura</th><th className="p-3">Fecha</th><th className="p-3">Cliente</th><th className="p-3">Total</th><th className="p-3 text-right">Detalle</th></tr></thead>
               <tbody className="divide-y divide-slate-800">
                 {facturas.map(f => (
-                  <tr key={f.id} className="hover:bg-slate-800/40"><td className="p-3 font-bold text-emerald-400">{f.numero_factura}</td><td className="p-3 text-slate-400">{f.fecha}</td><td className="p-3 font-medium text-white">{f.cliente_nombre}</td><td className="p-3 font-extrabold text-white">$ {f.total.toLocaleString('es-CO')}</td><td className="p-3 text-right space-x-1"><button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button><button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button></td></tr>
+                  <tr key={f.id} className="hover:bg-slate-800/40"><td className="p-3 font-bold text-emerald-400">{f.numero_factura}</td><td className="p-3 text-slate-400">{f.fecha}</td><td className="p-3 font-medium text-white">{f.cliente_nombre}</td><td className="p-3 font-extrabold text-white">$ {(f.total || 0).toLocaleString('es-CO')}</td><td className="p-3 text-right space-x-1"><button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button><button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button></td></tr>
                 ))}
               </tbody>
             </table>
@@ -515,7 +496,7 @@ function MainApp() {
               <button
                 onClick={() => {
                   const clean = busquedaCliente.trim().toUpperCase();
-                  const res = ordenes.find(o => o.codigo_seguimiento.toUpperCase() === clean);
+                  const res = ordenes.find(o => o.codigo_seguimiento && o.codigo_seguimiento.toUpperCase() === clean);
                   setClienteSeleccionado(res || 'NO_ENCONTRADO');
                 }}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold"
@@ -533,15 +514,6 @@ function MainApp() {
                 <p><strong className="text-white">Equipo:</strong> {clienteSeleccionado.tipo_equipo} {clienteSeleccionado.marca_modelo}</p>
                 <p><strong className="text-white">Diagnóstico Técnico:</strong> {clienteSeleccionado.diagnostico || 'Equipo en proceso de revisión.'}</p>
                 <p><strong className="text-white">Presupuesto Estimado:</strong> $ {(clienteSeleccionado.valor_estimado || 0).toLocaleString('es-CO')}</p>
-
-                <div className="pt-2 border-t border-slate-700/60 space-y-1">
-                  <p className="font-bold text-slate-400 text-[11px]">Bitácora de Avance:</p>
-                  {(clienteSeleccionado.observaciones || []).map((obs, idx) => (
-                    <div key={idx} className="text-[11px] text-slate-300">
-                      <span className="text-slate-500">{obs.fecha}:</span> {obs.texto}
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
             {clienteSeleccionado === 'NO_ENCONTRADO' && <p className="text-xs text-amber-400">No se encontró ninguna orden con ese código.</p>}
@@ -595,12 +567,11 @@ function MainApp() {
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-3">
-            <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.numero_orden}</h3>
+            <h3 className="font-bold text-white text-base">Modificar Orden</h3>
             <select className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.estado} onChange={e => setEditOrdForm({ ...editOrdForm, estado: e.target.value })}><option value="Ingresado">Ingresado</option><option value="En Diagnóstico">En Diagnóstico</option><option value="Esperando Repuesto">Esperando Repuesto</option><option value="Reparado / Listo">Reparado / Listo</option><option value="Entregado / Facturado">Entregado / Facturado</option></select>
-            <textarea className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" rows={2} value={editOrdForm.diagnostico} onChange={e => setEditOrdForm({ ...editOrdForm, diagnostico: e.target.value })} />
-            <input className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" placeholder="Nueva Observación..." value={editOrdForm.observacion} onChange={e => setEditOrdForm({ ...editOrdForm, observacion: e.target.value })} />
-            <input type="number" className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.costo} onChange={e => setEditOrdForm({ ...editOrdForm, costo: e.target.value })} />
-            <div className="flex justify-end gap-2 pt-2"><button onClick={() => setModalEditOrden(null)} className="text-xs text-slate-400 px-3">Cancelar</button><button onClick={async () => { await actualizarOrden(modalEditOrden.id, editOrdForm.estado, editOrdForm.observacion, editOrdForm.diagnostico, editOrdForm.costo); setModalEditOrden(null); }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar</button></div>
+            <textarea className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" rows={2} value={editOrdForm.diagnostico} onChange={e => setEditOrdForm({ ...editOrdForm, diagnostico: e.target.value })} placeholder="Diagnóstico técnico..." />
+            <input type="number" className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.costo} onChange={e => setEditOrdForm({ ...editOrdForm, costo: e.target.value })} placeholder="Costo..." />
+            <div className="flex justify-end gap-2 pt-2"><button onClick={() => setModalEditOrden(null)} className="text-xs text-slate-400 px-3">Cancelar</button><button onClick={async () => { await actualizarOrden(modalEditOrden.id, editOrdForm.estado, '', editOrdForm.diagnostico, editOrdForm.costo); setModalEditOrden(null); }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar</button></div>
           </div>
         </div>
       )}
@@ -611,7 +582,7 @@ function MainApp() {
             <div id="seccion-impresion" className="space-y-4 text-sm">
               <div className="flex justify-between"><h1 className="font-black text-xl">{empresa.nombre}</h1><h2 className="font-extrabold text-indigo-600">DOCUMENTO OFICIAL</h2></div>
               {documentoImprimir.tipo === 'ORDEN' && (<div className="space-y-2"><p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p><p><strong>Código Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p><p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo}</p><p><strong>Fallo:</strong> {documentoImprimir.data.fallo_reportado}</p></div>)}
-              {documentoImprimir.tipo === 'FACTURA' && (<div className="space-y-2"><p><strong>Factura:</strong> {documentoImprimir.data.numero_factura}</p><p><strong>Total:</strong> ${documentoImprimir.data.total.toLocaleString('es-CO')}</p></div>)}
+              {documentoImprimir.tipo === 'FACTURA' && (<div className="space-y-2"><p><strong>Factura:</strong> {documentoImprimir.data.numero_factura}</p><p><strong>Total:</strong> ${(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p></div>)}
             </div>
             <div className="flex justify-end gap-2 pt-4 no-imprimir"><button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3">Cerrar</button><button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Imprimir</button></div>
           </div>
@@ -637,7 +608,7 @@ function PortalPublico() {
         <p className="text-xs text-slate-400 mb-6">Portal Público de Consulta</p>
         <div className="flex gap-2">
           <input placeholder="Ingresa tu Código (ej. TK-89A1)" className="flex-1 bg-slate-800 border border-slate-700 p-3 rounded-xl text-sm font-bold font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500" value={codigoConsulta} onChange={e => setCodigoConsulta(e.target.value.toUpperCase())} />
-          <button onClick={() => { const res = ordenes.find(o => o.codigo_seguimiento.toUpperCase() === codigoConsulta.trim().toUpperCase()); setOrdenConsultaResult(res || 'NO_ENCONTRADO'); }} className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold">Consultar</button>
+          <button onClick={() => { const res = ordenes.find(o => o.codigo_seguimiento && o.codigo_seguimiento.toUpperCase() === codigoConsulta.trim().toUpperCase()); setOrdenConsultaResult(res || 'NO_ENCONTRADO'); }} className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold">Consultar</button>
         </div>
         {ordenConsultaResult && ordenConsultaResult !== 'NO_ENCONTRADO' && (
           <div className="text-left bg-slate-800/60 p-5 rounded-xl border border-slate-700 space-y-3 text-sm mt-6">
