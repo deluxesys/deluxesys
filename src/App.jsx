@@ -145,21 +145,16 @@ export function AppProvider({ children }) {
   };
 
   const facturarOrden = async (orden) => {
+    // Estructura limpia compatible con las columnas estándar de facturas
     const nuevaFac = {
       numero_factura: `FAC-${Math.floor(Math.random() * 90000) + 10000}`,
       cliente_nombre: orden.cliente_nombre,
       fecha: new Date().toISOString().split('T')[0],
       total: orden.valor_estimado || 0,
       tipo: 'Servicio Técnico',
-      items: [{ descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo})`, cantidad: 1, precio: orden.valor_estimado || 0 }],
-      detalles_equipo: {
-        tipo_equipo: orden.tipo_equipo,
-        marca_modelo: orden.marca_modelo,
-        serie: orden.serie || 'N/A',
-        fallo_reportado: orden.fallo_reportado,
-        diagnostico: orden.diagnostico || 'Pendiente',
-        observaciones: orden.observaciones || []
-      }
+      items: [
+        { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${orden.fallo_reportado} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: orden.valor_estimado || 0 }
+      ]
     };
 
     const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
@@ -168,7 +163,9 @@ export function AppProvider({ children }) {
       await actualizarOrden(orden.id, 'Entregado / Facturado', 'Equipo entregado y facturado.', orden.diagnostico, orden.valor_estimado);
       return insertada[0];
     } else {
+      console.error(error);
       alert('Error al generar la factura.');
+      return null;
     }
   };
 
@@ -637,7 +634,6 @@ function MainApp() {
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3">
             <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.numero_orden || modalEditOrden.id?.toString().slice(0,5)}</h3>
             
-            {/* Mostrar historial previo de comentarios */}
             <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700 max-h-36 overflow-y-auto space-y-1 text-xs">
               <p className="font-bold text-indigo-400">Historial de Avances Anteriores:</p>
               {(Array.isArray(modalEditOrden.observaciones) ? modalEditOrden.observaciones : []).length > 0 ? (
@@ -790,29 +786,10 @@ function MainApp() {
             <p className="text-xs text-slate-300"><strong>Cliente:</strong> {facturaSeleccionada.cliente_nombre}</p>
             <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
 
-            {facturaSeleccionada.detalles_equipo ? (
-              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700 text-xs space-y-1.5 max-h-40 overflow-y-auto">
-                <p className="font-bold text-indigo-400">Información del Equipo y Proceso:</p>
-                <p><strong>Equipo:</strong> {facturaSeleccionada.detalles_equipo.tipo_equipo} - {facturaSeleccionada.detalles_equipo.marca_modelo} (S/N: {facturaSeleccionada.detalles_equipo.serie})</p>
-                <p><strong>Fallo Reportado:</strong> {facturaSeleccionada.detalles_equipo.fallo_reportado}</p>
-                <p><strong>Diagnóstico:</strong> {facturaSeleccionada.detalles_equipo.diagnostico || 'N/A'}</p>
-                {facturaSeleccionada.detalles_equipo.observaciones?.length > 0 && (
-                  <div className="pt-1 border-t border-slate-700">
-                    <p className="font-semibold text-slate-300">Bitácora de Avances:</p>
-                    {facturaSeleccionada.detalles_equipo.observaciones.map((obs, idx) => (
-                      <p key={idx} className="text-[11px] text-slate-400">▪️ [{obs.fecha}]: {obs.texto}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-[11px] text-slate-500 italic">Factura de venta directa (sin equipo en taller).</p>
-            )}
-
-            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-28 overflow-y-auto">
+            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800 text-slate-400">
-                  <tr><th className="p-2">Ítem</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio</th></tr>
+                  <tr><th className="p-2">Ítem / Descripción</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {(facturaSeleccionada.items || []).map((it, idx) => (
@@ -838,7 +815,7 @@ function MainApp() {
         </div>
       )}
 
-      {/* 6. Documento Impreso PDF */}
+      {/* 6. Documento Impreso PDF (Orden o Factura con Historial Completo) */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
           <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -852,12 +829,23 @@ function MainApp() {
               </div>
 
               {documentoImprimir.tipo === 'ORDEN' && (
-                <div className="space-y-2 text-xs">
+                <div className="space-y-3 text-xs">
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
                   <p><strong>Código de Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
                   <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
                   <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
+                  <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
                   <p><strong>Presupuesto Estimado:</strong> $ {(documentoImprimir.data.valor_estimado || 0).toLocaleString('es-CO')}</p>
+
+                  {/* Historial de avances en el PDF de la orden */}
+                  {Array.isArray(documentoImprimir.data.observaciones) && documentoImprimir.data.observaciones.length > 0 && (
+                    <div className="mt-3 pt-2 border-t border-slate-200 space-y-1">
+                      <p className="font-bold text-slate-700 uppercase text-[11px]">Historial de Proceso y Avances:</p>
+                      {documentoImprimir.data.observaciones.map((obs, idx) => (
+                        <p key={idx} className="text-[11px] text-slate-600">▪️ [{obs.fecha}]: {obs.texto}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -868,26 +856,6 @@ function MainApp() {
                     <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
                   </div>
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
-
-                  {/* Datos del equipo y bitácora completos en factura */}
-                  {documentoImprimir.data.detalles_equipo ? (
-                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
-                      <p className="font-bold text-indigo-700">Detalles de Ingreso y Proceso en Taller:</p>
-                      <p><strong>Equipo:</strong> {documentoImprimir.data.detalles_equipo.tipo_equipo} {documentoImprimir.data.detalles_equipo.marca_modelo} (S/N: {documentoImprimir.data.detalles_equipo.serie})</p>
-                      <p><strong>Fallo Inicial:</strong> {documentoImprimir.data.detalles_equipo.fallo_reportado}</p>
-                      <p><strong>Diagnóstico Final:</strong> {documentoImprimir.data.detalles_equipo.diagnostico || 'N/A'}</p>
-                      {documentoImprimir.data.detalles_equipo.observaciones?.length > 0 && (
-                        <div className="mt-1 pt-1 border-t border-slate-200">
-                          <p className="font-semibold text-slate-700">Historial / Proceso:</p>
-                          {documentoImprimir.data.detalles_equipo.observaciones.map((obs, idx) => (
-                            <p key={idx} className="text-[11px] text-slate-600">▪️ [{obs.fecha}]: {obs.texto}</p>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-slate-500 italic">Venta directa de repuestos/accesorios.</p>
-                  )}
 
                   <table className="w-full text-left border border-slate-300 mt-2">
                     <thead className="bg-slate-100">
