@@ -295,7 +295,10 @@ function MainApp() {
     }
   };
 
-  const permisos = rolActual ? (typeof rolActual.permisos === 'string' ? JSON.parse(rolActual.permisos) : rolActual.permisos) : {};
+  // Forzar todos los permisos si es el administrador de emergencia
+  const permisos = usuarioSesion?.id === 'emergencia' 
+    ? { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true } 
+    : (rolActual ? (typeof rolActual.permisos === 'string' ? JSON.parse(rolActual.permisos) : rolActual.permisos) : {});
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans">
