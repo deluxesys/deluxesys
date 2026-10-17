@@ -316,7 +316,7 @@ function MainApp() {
   const [reporteFiltro, setReporteFiltro] = useState({
     fechaInicio: new Date().toISOString().split('T')[0],
     fechaFin: new Date().toISOString().split('T')[0],
-    tipo: 'AMBOS' // 'AMBOS', 'VENTAS', 'REPARACIONES'
+    tipo: 'AMBOS'
   });
 
   const [tipoClienteOpt, setTipoClienteOpt] = useState('EXISTENTE');
@@ -355,19 +355,17 @@ function MainApp() {
     a.click();
   };
 
-  // Función para generar y descargar el reporte en Excel (.csv compatible con Excel)
   const generarReporteExcel = () => {
     const { fechaInicio, fechaFin, tipo } = reporteFiltro;
 
-    // Filtrar facturas/remisiones según fechas y tipo
     const filtradas = facturas.filter(f => {
-      const fechaF = f.fecha; // formato YYYY-MM-DD
+      const fechaF = f.fecha; 
       const cumpleFecha = fechaF >= fechaInicio && fechaF <= fechaFin;
       if (!cumpleFecha) return false;
 
       if (tipo === 'VENTAS') return f.tipo === 'Venta de Repuestos';
       if (tipo === 'REPARACIONES') return f.tipo === 'Servicio Técnico';
-      return true; // AMBOS
+      return true; 
     });
 
     if (filtradas.length === 0) {
@@ -375,7 +373,7 @@ function MainApp() {
       return;
     }
 
-    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // \uFEFF para soportar tildes en Excel
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
     csvContent += "Remision/Documento,Fecha,Tipo,Cliente,Telefono,Vendedor,Total\n";
 
     let sumaTotal = 0;
@@ -1061,31 +1059,31 @@ function MainApp() {
         </div>
       )}
 
-      {/* 6. Documento Impreso PDF (OPTIMIZADO A MITAD DE HOJA CARTA Y TEXTOS GRANDES) */}
+      {/* 6. Documento Impreso PDF (REAJUSTADO 25% MÁS GRANDE Y OPTIMIZADO A MITAD DE HOJA CARTA) */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
           <div className="bg-white text-slate-900 w-full max-w-xl p-6 rounded-2xl space-y-3 shadow-2xl h-[50vh] max-h-[50vh] overflow-y-auto flex flex-col justify-between border-b-2 border-dashed border-slate-400">
-            <div id="seccion-impresion" className="space-y-3 text-sm">
+            <div id="seccion-impresion" className="space-y-3 text-base">
               
               <div className="flex items-center justify-between border-b pb-2 gap-3">
                 <div className="flex items-center gap-2">
                   {empresa.logoUrl && (
-                    <img src={empresa.logoUrl} alt="Logo" className="w-14 h-14 object-contain rounded-lg border p-0.5 bg-white shrink-0" />
+                    <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded-lg border p-0.5 bg-white shrink-0" />
                   )}
                   <div>
-                    <h1 className="font-black text-lg leading-tight">{empresa.nombre}</h1>
+                    <h1 className="font-black text-xl leading-tight">{empresa.nombre}</h1>
                     <p className="text-xs text-slate-600">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
                   </div>
                 </div>
-                <h2 className="font-extrabold text-indigo-700 uppercase text-right text-base shrink-0">
+                <h2 className="font-extrabold text-indigo-700 uppercase text-right text-lg shrink-0">
                   {documentoImprimir.tipo === 'FACTURA' ? 'REMISIÓN' : 'ORDEN DE ENTRADA'}
                 </h2>
               </div>
 
               {documentoImprimir.tipo === 'ORDEN' && (
-                <div className="space-y-2 text-xs">
+                <div className="space-y-2 text-sm">
                   {documentoImprimir.idConsecutivo && (
-                    <p className="text-sm"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
+                    <p className="text-base"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
                   )}
                   <div className="grid grid-cols-2 gap-1">
                     <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
@@ -1104,15 +1102,15 @@ function MainApp() {
                       <p><strong>Presupuesto Est.:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
                     )}
                     {Number(documentoImprimir.data.total_pagar) > 0 && (
-                      <p className="font-bold text-emerald-700 text-sm"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
+                      <p className="font-bold text-emerald-700 text-base"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
                     )}
                   </div>
                 </div>
               )}
 
               {documentoImprimir.tipo === 'FACTURA' && (
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between text-sm">
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between text-base">
                     <p><strong>Remisión N°:</strong> <span className="font-black text-indigo-700">{documentoImprimir.data.numero_factura}</span></p>
                     <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
                   </div>
@@ -1121,27 +1119,27 @@ function MainApp() {
                     <p><strong>Vendedor:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
                   </div>
 
-                  <table className="w-full text-left border border-slate-300 mt-1 text-xs">
+                  <table className="w-full text-left border border-slate-300 mt-1 text-sm">
                     <thead className="bg-slate-100">
-                      <tr><th className="p-1.5 border">Descripción</th><th className="p-1.5 text-center border">Cant.</th><th className="p-1.5 text-right border">Precio</th></tr>
+                      <tr><th className="p-2 border">Descripción</th><th className="p-2 text-center border">Cant.</th><th className="p-2 text-right border">Precio</th></tr>
                     </thead>
                     <tbody>
                       {(documentoImprimir.data.items || []).map((it, idx) => (
-                        <tr key={idx}><td className="p-1.5 border">{it.descripcion}</td><td className="p-1.5 text-center border">{it.cantidad}</td><td className="p-1.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
+                        <tr key={idx}><td className="p-2 border">{it.descripcion}</td><td className="p-2 text-center border">{it.cantidad}</td><td className="p-2 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
                       ))}
                     </tbody>
                   </table>
-                  <p className="font-black text-emerald-700 text-base text-right mt-1">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
+                  <p className="font-black text-emerald-700 text-lg text-right mt-1">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
 
-                  {/* ESPACIO GARANTÍA Y SELLO REDucido PARA MITAD DE HOJA */}
-                  <div className="mt-2 pt-2 border-t border-dashed border-slate-300 grid grid-cols-2 gap-4 text-[11px]">
+                  {/* ESPACIO GARANTÍA Y SELLO REAJUSTADO */}
+                  <div className="mt-2 pt-2 border-t border-dashed border-slate-300 grid grid-cols-2 gap-4 text-xs">
                     <div className="border border-slate-300 p-2 rounded h-16 flex flex-col justify-between">
-                      <span className="font-bold text-slate-600 uppercase text-[10px]">Garantía:</span>
+                      <span className="font-bold text-slate-600 uppercase text-xs">Garantía:</span>
                       <div className="border-b border-dotted border-slate-400 w-full mb-1"></div>
                       <div className="border-b border-dotted border-slate-400 w-full"></div>
                     </div>
                     <div className="border border-slate-300 p-2 rounded h-16 flex flex-col items-center justify-end text-center">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase">Sello / Firma</span>
+                      <span className="text-xs text-slate-400 font-bold uppercase">Sello / Firma</span>
                     </div>
                   </div>
                 </div>
