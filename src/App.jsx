@@ -40,10 +40,10 @@ export function AppProvider({ children }) {
       const resCli = await supabase.from('clientes').select('*');
       if (resCli.data) setClientes(resCli.data);
 
-      const resOrd = await supabase.from('ordenes').select('*');
+      const resOrd = await supabase.from('ordenes').select('*').order('id', { ascending: false });
       if (resOrd.data) setOrdenes(resOrd.data);
 
-      const resFac = await supabase.from('facturas').select('*');
+      const resFac = await supabase.from('facturas').select('*').order('id', { ascending: false });
       if (resFac.data) setFacturas(resFac.data);
 
     } catch (error) {
@@ -297,7 +297,6 @@ function MainApp() {
   const [formOrden, setFormOrden] = useState({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0 });
   const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', costo: 0 });
   
-  // Estados específicos para Venta Directa con selección de cliente
   const [tipoClienteVentaOpt, setTipoClienteVentaOpt] = useState('EXISTENTE');
   const [busquedaClienteVenta, setBusquedaClienteVenta] = useState('');
   const [clienteVentaSeleccionado, setClienteVentaSeleccionado] = useState(null);
@@ -311,7 +310,7 @@ function MainApp() {
   const clientesFiltradosVenta = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaClienteVenta.toLowerCase()) || c.telefono.includes(busquedaClienteVenta));
 
   const enviarWhatsApp = (orden) => {
-    const msg = `Hola *${orden.cliente_nombre}* 👋. Te saludamos de *${empresa.nombre}*.\nTu equipo *${orden.tipo_equipo} ${orden.marca_modelo}* se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance usando tu *Código Único: ${orden.codigo_seguimiento}* en nuestra plataforma.`;
+    const msg = `Hola *${orden.cliente_nombre}* 👋\n\nTe saludamos de *${empresa.nombre}*.\n\nTu equipo *${orden.tipo_equipo} ${orden.marca_modelo}* se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance, diagnóstico y estado de tu equipo ingresando a nuestra plataforma:\n🔗 https://syspcdoctor.vercel.app/portal\n\nUtiliza tu código único: *${orden.codigo_seguimiento}*`;
     window.open(`https://wa.me/57${orden.cliente_telefono}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
@@ -477,7 +476,7 @@ function MainApp() {
                 <tbody className="divide-y divide-slate-800">
                   {ordenes.map(o => (
                     <tr key={o.id} className="hover:bg-slate-800/40">
-                      <td className="p-3 font-bold text-indigo-400">#{o.id ? o.id.toString().slice(0, 5) : '1001'}</td>
+                      <td className="p-3 font-bold text-indigo-400">#{o.id}</td>
                       <td className="p-3 font-mono text-xs text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800/40">{o.codigo_seguimiento}</td>
                       <td className="p-3 font-medium text-white">{o.cliente_nombre}<span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span></td>
                       <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
@@ -640,7 +639,7 @@ function MainApp() {
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3">
-            <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.numero_orden || modalEditOrden.id?.toString().slice(0,5)}</h3>
+            <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.numero_orden || modalEditOrden.id}</h3>
             
             <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700 max-h-36 overflow-y-auto space-y-1 text-xs">
               <p className="font-bold text-indigo-400">Historial de Avances Anteriores:</p>
@@ -749,7 +748,6 @@ function MainApp() {
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-white text-base">Emitir Venta Directa / Repuesto</h3>
             
-            {/* Selector Cliente Existente o Nuevo para Venta */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-indigo-400 uppercase">Cliente</label>
               <div className="grid grid-cols-2 gap-2">
