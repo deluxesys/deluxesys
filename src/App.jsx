@@ -18,37 +18,44 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Al iniciar la App, descargar todo de Supabase
   useEffect(() => {
     cargarDatos();
   }, []);
 
   const cargarDatos = async () => {
     try {
-      const [resEmp, resRol, resUsr, resCli, resOrd, resFac] = await Promise.all([
-        supabase.from('empresa').select('*').limit(1).single(),
-        supabase.from('roles').select('*'),
-        supabase.from('usuarios').select('*'),
-        supabase.from('clientes').select('*'),
-        supabase.from('ordenes').select('*').order('numero_orden', { ascending: false }),
-        supabase.from('facturas').select('*').order('numero_factura', { ascending: false })
-      ]);
+      // Carga separada para que si algo falla, no bloquee el resto de la aplicación
+      const resEmp = await supabase.from('empresa').select('*').limit(1);
+      if (resEmp.data && resEmp.data.length > 0) {
+        setEmpresa({ ...resEmp.data[0], logoUrl: resEmp.data[0].logo_url });
+      } else {
+        setEmpresa({ nombre: 'TechFix (Falta Configurar)', nit: '', telefono: '', direccion: '', logoUrl: '' });
+      }
 
-      if (resEmp.data) setEmpresa({ ...resEmp.data, logoUrl: resEmp.data.logo_url });
+      const resRol = await supabase.from('roles').select('*');
       if (resRol.data) setRoles(resRol.data);
+
+      const resUsr = await supabase.from('usuarios').select('*');
       if (resUsr.data) setUsuarios(resUsr.data);
+
+      const resCli = await supabase.from('clientes').select('*');
       if (resCli.data) setClientes(resCli.data);
+
+      const resOrd = await supabase.from('ordenes').select('*').order('numero_orden', { ascending: false });
       if (resOrd.data) setOrdenes(resOrd.data);
+
+      const resFac = await supabase.from('facturas').select('*').order('numero_factura', { ascending: false });
       if (resFac.data) setFacturas(resFac.data);
+
     } catch (error) {
       console.error("Error conectando a Supabase:", error);
     }
   };
 
   const login = (usr, pwd) => {
-    // Sistema de emergencia por si la tabla de usuarios está vacía
+    // Modo de emergencia invencible
     if (usuarios.length === 0 && usr === 'admin' && pwd === 'admin123') {
-      const adminEmergencia = { id: 'emergencia', nombre: 'Admin Master', usuario: 'admin', rol_id: roles[0]?.id };
+      const adminEmergencia = { id: 'emergencia', nombre: 'Admin Master', usuario: 'admin', rol_id: 'emergencia' };
       setUsuarioSesion(adminEmergencia);
       localStorage.setItem('techfix_sesion', JSON.stringify(adminEmergencia));
       return true;
@@ -68,15 +75,15 @@ export function AppProvider({ children }) {
     localStorage.removeItem('techfix_sesion');
   };
 
-  const rolActual = usuarioSesion ? roles.find(r => r.id === usuarioSesion.rol_id) || roles[0] : null;
+  const rolActual = usuarioSesion ? roles.find(r => r.id === usuarioSesion.rol_id) : null;
 
   const generarCodigoSeguimiento = () => 'TK-' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
   const agregarCliente = async (data) => {
-    const { data: insertado, error } = await supabase.from('clientes').insert([data]).select().single();
-    if (error) return alert('Error guardando cliente.');
-    setClientes(prev => [insertado, ...prev]);
-    return insertado;
+    const { data: insertado, error } = await supabase.from('clientes').insert([data]).select();
+    if (error || !insertado) return alert('Error guardando cliente.');
+    setClientes(prev => [insertado[0], ...prev]);
+    return insertado[0];
   };
 
   const modificarCliente = async (id, data) => {
@@ -103,10 +110,10 @@ export function AppProvider({ children }) {
       observaciones: [{ fecha: new Date().toLocaleString('es-CO'), texto: 'Orden de entrada registrada.' }]
     };
 
-    const { data: insertada, error } = await supabase.from('ordenes').insert([nueva]).select().single();
-    if (error) return alert('Error guardando la orden en la nube.');
-    setOrdenes(prev => [insertada, ...prev]);
-    return insertada;
+    const { data: insertada, error } = await supabase.from('ordenes').insert([nueva]).select();
+    if (error || !insertada) return alert('Error guardando la orden en la nube.');
+    setOrdenes(prev => [insertada[0], ...prev]);
+    return insertada[0];
   };
 
   const actualizarOrden = async (id, estado, obs, diag, costo) => {
@@ -140,11 +147,11 @@ export function AppProvider({ children }) {
       tipo: 'Servicio Técnico'
     };
 
-    const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select().single();
-    if (!error) {
-      setFacturas(prev => [insertada, ...prev]);
+    const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
+    if (!error && insertada) {
+      setFacturas(prev => [insertada[0], ...prev]);
       await actualizarOrden(orden.id, 'Entregado / Facturado', 'Servicio entregado y cobrado.', orden.diagnostico, orden.valor_estimado);
-      return insertada;
+      return insertada[0];
     }
   };
 
@@ -159,25 +166,31 @@ export function AppProvider({ children }) {
       tipo: 'Venta de Repuestos'
     };
 
-    const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select().single();
-    if (!error) { setFacturas(prev => [insertada, ...prev]); return insertada; }
+    const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
+    if (!error && insertada) { setFacturas(prev => [insertada[0], ...prev]); return insertada[0]; }
   };
 
   const agregarRol = async (nombreRol, permisosObj) => {
-    const { data: insertado, error } = await supabase.from('roles').insert([{ nombre: nombreRol, permisos: permisosObj }]).select().single();
-    if (!error) setRoles(prev => [...prev, insertado]);
+    const { data: insertado, error } = await supabase.from('roles').insert([{ nombre: nombreRol, permisos: permisosObj }]).select();
+    if (!error && insertado) setRoles(prev => [...prev, insertado[0]]);
   };
 
   const agregarUsuario = async (data) => {
     const usr = { nombre: data.nombre, usuario: data.usuario, clave: data.clave, rol_id: data.rolId };
-    const { data: insertado, error } = await supabase.from('usuarios').insert([usr]).select().single();
-    if (!error) setUsuarios(prev => [...prev, insertado]);
+    const { data: insertado, error } = await supabase.from('usuarios').insert([usr]).select();
+    if (!error && insertado) setUsuarios(prev => [...prev, insertado[0]]);
   };
 
   const actualizarEmpresa = async (datos) => {
     const updateData = { nombre: datos.nombre, nit: datos.nit, telefono: datos.telefono, direccion: datos.direccion, logo_url: datos.logoUrl };
-    const { error } = await supabase.from('empresa').update(updateData).eq('id', datos.id);
-    if (!error) setEmpresa(datos);
+    const { data: ext } = await supabase.from('empresa').select('id').limit(1);
+    
+    if (ext && ext.length > 0) {
+      await supabase.from('empresa').update(updateData).eq('id', ext[0].id);
+    } else {
+      await supabase.from('empresa').insert([updateData]);
+    }
+    setEmpresa(datos);
   };
 
   return (
@@ -196,7 +209,7 @@ export function AppProvider({ children }) {
 const useApp = () => useContext(AppContext);
 
 // ==========================================
-// PANTALLA DE INICIO DE SESIÓN LIMPIA
+// PANTALLA DE INICIO DE SESIÓN
 // ==========================================
 function LoginScreen() {
   const { login, empresa } = useApp();
@@ -295,7 +308,7 @@ function MainApp() {
     }
   };
 
-  // Forzar todos los permisos si es el administrador de emergencia
+  // ESTA ES LA LÍNEA MÁGICA DE LOS PERMISOS
   const permisos = usuarioSesion?.id === 'emergencia' 
     ? { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true } 
     : (rolActual ? (typeof rolActual.permisos === 'string' ? JSON.parse(rolActual.permisos) : rolActual.permisos) : {});
@@ -327,7 +340,7 @@ function MainApp() {
           </nav>
         </div>
         <div className="pt-4 border-t border-slate-800 text-xs space-y-2">
-          <div><p className="text-white font-bold">{usuarioSesion?.nombre}</p><p className="text-[10px] text-indigo-400 font-semibold">{rolActual?.nombre}</p></div>
+          <div><p className="text-white font-bold">{usuarioSesion?.nombre}</p><p className="text-[10px] text-indigo-400 font-semibold">{rolActual?.nombre || 'Administrador Sistema'}</p></div>
           <button onClick={logout} className="w-full bg-slate-800 hover:bg-rose-950 hover:text-rose-400 text-slate-300 font-bold p-2 rounded-xl text-center transition border border-slate-700">🚪 Cerrar Sesión</button>
         </div>
       </aside>
@@ -506,10 +519,21 @@ function MainApp() {
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
               <h2 className="text-xl font-bold text-white border-b border-slate-800 pb-2">Crear Usuarios Reales</h2>
               <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800 space-y-3 text-xs">
-                <p className="font-bold text-indigo-400 uppercase">Crear Usuario</p>
+                <p className="font-bold text-indigo-400 uppercase">Crear Perfil (Rol)</p>
+                <input placeholder="Nombre de Perfil (ej. Técnico, Ventas)" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formNuevoRol.nombre} onChange={e => setFormNuevoRol({ ...formNuevoRol, nombre: e.target.value })} />
+                <div className="grid grid-cols-2 gap-2 text-slate-300">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.crear_orden} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, crear_orden: e.target.checked } })} /> Crear Órdenes</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.editar_diagnostico} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, editar_diagnostico: e.target.checked } })} /> Modificar Diagnóstico</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.ver_clientes} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, ver_clientes: e.target.checked } })} /> Ver Clientes</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.facturar} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, facturar: e.target.checked } })} /> Facturar y Ventas</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.ver_configuracion} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, ver_configuracion: e.target.checked } })} /> Configuración</label>
+                </div>
+                <button onClick={async () => { if (!formNuevoRol.nombre) return; await agregarRol(formNuevoRol.nombre, formNuevoRol.permisos); alert('Rol creado'); setFormNuevoRol({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } }); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Rol</button>
+
+                <p className="font-bold text-indigo-400 uppercase mt-4">Crear Usuario</p>
                 <div className="grid grid-cols-2 gap-2"><input placeholder="Nombre Completo" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.nombre} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, nombre: e.target.value })} /><input placeholder="Usuario" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.usuario} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, usuario: e.target.value })} /></div>
-                <div className="grid grid-cols-2 gap-2"><input type="password" placeholder="Contraseña" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.clave} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, clave: e.target.value })} /><select className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.rolId} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, rolId: e.target.value })}>{roles.map(r => (<option key={r.id} value={r.id}>{r.nombre}</option>))}</select></div>
-                <button onClick={async () => { if (!formUsuarioNuevo.nombre) return; await agregarUsuario(formUsuarioNuevo); alert('Usuario creado en Supabase'); }} className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Usuario</button>
+                <div className="grid grid-cols-2 gap-2"><input type="password" placeholder="Contraseña" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.clave} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, clave: e.target.value })} /><select className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.rolId} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, rolId: e.target.value })}><option value="">Selecciona Rol...</option>{roles.map(r => (<option key={r.id} value={r.id}>{r.nombre}</option>))}</select></div>
+                <button onClick={async () => { if (!formUsuarioNuevo.nombre || !formUsuarioNuevo.rolId) return alert('Falta el Rol o Nombre'); await agregarUsuario(formUsuarioNuevo); alert('Usuario creado en Supabase'); }} className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Usuario</button>
               </div>
             </div>
           </div>
@@ -562,7 +586,7 @@ function PortalPublico() {
         <h2 className="text-xl font-bold text-white mb-1">{empresa.nombre}</h2>
         <p className="text-xs text-slate-400 mb-6">Portal Público de Consulta</p>
         <div className="flex gap-2">
-          <input placeholder="Ingresa tu Código (ej. TK-89A1)" className="flex-1 bg-slate-800 border p-3 rounded-xl text-sm font-bold font-mono uppercase" value={codigoConsulta} onChange={e => setCodigoConsulta(e.target.value.toUpperCase())} />
+          <input placeholder="Ingresa tu Código (ej. TK-89A1)" className="flex-1 bg-slate-800 border border-slate-700 p-3 rounded-xl text-sm font-bold font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500" value={codigoConsulta} onChange={e => setCodigoConsulta(e.target.value.toUpperCase())} />
           <button onClick={() => { const res = ordenes.find(o => o.codigo_seguimiento.toUpperCase() === codigoConsulta.trim().toUpperCase()); setOrdenConsultaResult(res || 'NO_ENCONTRADO'); }} className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold">Consultar</button>
         </div>
         {ordenConsultaResult && ordenConsultaResult !== 'NO_ENCONTRADO' && (
