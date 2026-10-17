@@ -449,7 +449,7 @@ function MainApp() {
                 <input placeholder="N° de Serie (S/N)" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formOrden.serie} onChange={e => setFormOrden({ ...formOrden, serie: e.target.value })} />
               </div>
               <textarea placeholder="Síntomas / Fallo reportado *" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" rows={2} value={formOrden.fallo_reportado} onChange={e => setFormOrden({ ...formOrden, fallo_reportado: e.target.value })} />
-              <input type="number" placeholder="Presupuesto Estimado ($ COP)" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formOrden.valor_estimado} onChange={e => setFormOrden({ ...formOrden, valor_estimado: e.target.value })} />
+              <input type="number" placeholder="Presupuesto Estimado ($ COP) - Opcional" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formOrden.valor_estimado} onChange={e => setFormOrden({ ...formOrden, valor_estimado: e.target.value })} />
             </div>
 
             <button
@@ -496,7 +496,7 @@ function MainApp() {
                       <td className="p-3 font-medium text-white">{o.cliente_nombre}<span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span></td>
                       <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
                       <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
-                      <td className="p-3 font-bold text-white">$ {(o.valor_estimado || 0).toLocaleString('es-CO')}</td>
+                      <td className="p-3 font-bold text-white">{o.valor_estimado ? `$ ${Number(o.valor_estimado).toLocaleString('es-CO')}` : '-'}</td>
                       <td className="p-3 text-right space-x-1">
                         {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                         <button onClick={() => enviarWhatsApp(o)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
@@ -596,7 +596,16 @@ function MainApp() {
                 <p><strong className="text-white">Equipo:</strong> {clienteSeleccionado.tipo_equipo} {clienteSeleccionado.marca_modelo} (S/N: {clienteSeleccionado.serie || 'N/A'})</p>
                 <p><strong className="text-white">Fallo Reportado:</strong> {clienteSeleccionado.fallo_reportado}</p>
                 <p><strong className="text-white">Diagnóstico Técnico:</strong> {clienteSeleccionado.diagnostico || 'Equipo en proceso de revisión.'}</p>
-                <p><strong className="text-white">Presupuesto Estimado:</strong> $ {(clienteSeleccionado.valor_estimado || 0).toLocaleString('es-CO')}</p>
+                
+                {/* Presupuesto Estimado: solo si tiene valor */}
+                {Number(clienteSeleccionado.valor_estimado) > 0 && (
+                  <p><strong className="text-white">Presupuesto Estimado:</strong> $ {Number(clienteSeleccionado.valor_estimado).toLocaleString('es-CO')}</p>
+                )}
+
+                {/* Valor a Pagar: solo si está reparado/listo o entregado/facturado */}
+                {(clienteSeleccionado.estado === 'Reparado / Listo' || clienteSeleccionado.estado === 'Entregado / Facturado') && Number(clienteSeleccionado.valor_estimado) > 0 && (
+                  <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Valor a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(clienteSeleccionado.valor_estimado).toLocaleString('es-CO')}</span></p>
+                )}
 
                 {/* HISTORIAL DESPLEGABLE */}
                 <div className="pt-2 border-t border-slate-700">
@@ -832,12 +841,12 @@ function MainApp() {
                 <div className="space-y-2 pt-1 bg-slate-800/40 p-3 rounded-xl border border-slate-800 text-xs">
                   <input placeholder="Nombre Completo *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.nombre} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, nombre: e.target.value })} />
                   <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="Teléfono / WhatsApp *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
-                    <input placeholder="Cédula / NIT" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
+                    <input placeholder="Teléfono / WhatsApp *" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
+                    <input placeholder="Cédula / NIT" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="Correo Electrónico" type="email" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.email} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, email: e.target.value })} />
-                    <input placeholder="Dirección" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.direccion} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, direccion: e.target.value })} />
+                    <input placeholder="Correo Electrónico" type="email" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.email} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, email: e.target.value })} />
+                    <input placeholder="Dirección" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.direccion} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, direccion: e.target.value })} />
                   </div>
                 </div>
               )}
@@ -955,7 +964,14 @@ function MainApp() {
                   <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
                   <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
                   <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
-                  <p><strong>Presupuesto Estimado:</strong> $ {(documentoImprimir.data.valor_estimado || 0).toLocaleString('es-CO')}</p>
+                  
+                  {Number(documentoImprimir.data.valor_estimado) > 0 && (
+                    <p><strong>Presupuesto Estimado:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
+                  )}
+
+                  {(documentoImprimir.data.estado === 'Reparado / Listo' || documentoImprimir.data.estado === 'Entregado / Facturado') && Number(documentoImprimir.data.valor_estimado) > 0 && (
+                    <p><strong>Valor a Pagar:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
+                  )}
 
                   {Array.isArray(documentoImprimir.data.observaciones) && documentoImprimir.data.observaciones.length > 0 && (
                     <div className="mt-3 pt-2 border-t border-slate-200 space-y-1">
@@ -1050,7 +1066,16 @@ function PortalPublico() {
             <p className="text-white"><strong>Equipo:</strong> {ordenConsultaResult.tipo_equipo} {ordenConsultaResult.marca_modelo}</p>
             <p className="text-white"><strong>Fallo Reportado:</strong> {ordenConsultaResult.fallo_reportado}</p>
             <p className="text-white"><strong>Diagnóstico Técnico:</strong> {ordenConsultaResult.diagnostico || 'Equipo en proceso de revisión.'}</p>
-            <p className="text-white"><strong>Presupuesto Estimado:</strong> $ {(ordenConsultaResult.valor_estimado || 0).toLocaleString('es-CO')}</p>
+            
+            {/* Presupuesto Estimado: solo si tiene valor */}
+            {Number(ordenConsultaResult.valor_estimado) > 0 && (
+              <p className="text-white"><strong>Presupuesto Estimado:</strong> $ {Number(ordenConsultaResult.valor_estimado).toLocaleString('es-CO')}</p>
+            )}
+
+            {/* Valor a Pagar: solo si está reparado/listo o entregado/facturado */}
+            {(ordenConsultaResult.estado === 'Reparado / Listo' || ordenConsultaResult.estado === 'Entregado / Facturado') && Number(ordenConsultaResult.valor_estimado) > 0 && (
+              <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Valor a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(ordenConsultaResult.valor_estimado).toLocaleString('es-CO')}</span></p>
+            )}
 
             {/* HISTORIAL DESPLEGABLE EN PORTAL PÚBLICO */}
             <div className="pt-2 border-t border-slate-700">
