@@ -308,9 +308,17 @@ function MainApp() {
   const [modalEditCliente, setModalEditCliente] = useState(null);
   const [verHistorialCliente, setVerHistorialCliente] = useState(null);
   const [modalVenta, setModalVenta] = useState(false);
+  const [modalReporteExcel, setModalReporteExcel] = useState(false);
   const [facturaSeleccionada, setFacturaSeleccionada] = useState(null);
   const [documentoImprimir, setDocumentoImprimir] = useState(null);
   
+  // Estados para reporte Excel
+  const [reporteFiltro, setReporteFiltro] = useState({
+    fechaInicio: new Date().toISOString().split('T')[0],
+    fechaFin: new Date().toISOString().split('T')[0],
+    tipo: 'AMBOS' // 'AMBOS', 'VENTAS', 'REPARACIONES'
+  });
+
   const [tipoClienteOpt, setTipoClienteOpt] = useState('EXISTENTE');
   const [busquedaCliente, setBusquedaCliente] = useState('');
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
@@ -345,6 +353,48 @@ function MainApp() {
     a.href = URL.createObjectURL(blob);
     a.download = `clientes_taller.csv`;
     a.click();
+  };
+
+  // Función para generar y descargar el reporte en Excel (.csv compatible con Excel)
+  const generarReporteExcel = () => {
+    const { fechaInicio, fechaFin, tipo } = reporteFiltro;
+
+    // Filtrar facturas/remisiones según fechas y tipo
+    const filtradas = facturas.filter(f => {
+      const fechaF = f.fecha; // formato YYYY-MM-DD
+      const cumpleFecha = fechaF >= fechaInicio && fechaF <= fechaFin;
+      if (!cumpleFecha) return false;
+
+      if (tipo === 'VENTAS') return f.tipo === 'Venta de Repuestos';
+      if (tipo === 'REPARACIONES') return f.tipo === 'Servicio Técnico';
+      return true; // AMBOS
+    });
+
+    if (filtradas.length === 0) {
+      alert('No hay registros en el rango de fechas seleccionado.');
+      return;
+    }
+
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // \uFEFF para soportar tildes en Excel
+    csvContent += "Remision/Documento,Fecha,Tipo,Cliente,Telefono,Vendedor,Total\n";
+
+    let sumaTotal = 0;
+    filtradas.forEach(f => {
+      sumaTotal += Number(f.total || 0);
+      const linea = `"${f.numero_factura}","${f.fecha}","${f.tipo}","${f.cliente_nombre}","${f.cliente_telefono || 'N/A'}","${f.usuario_creador || 'Sistema'}","${f.total}"`;
+      csvContent += linea + "\r\n";
+    });
+
+    csvContent += `\r\n,,, , ,TOTAL GENERAL,"$${sumaTotal}"\r\n`;
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `reporte_remisiones_${fechaInicio}_al_${fechaFin}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setModalReporteExcel(false);
   };
 
   const handleLogoUpload = (e) => {
@@ -561,7 +611,13 @@ function MainApp() {
         {/* 4. REMISIONES Y VENTAS */}
         {tab === 'facturacion' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-            <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-white">Remisiones y Ventas</h2><button onClick={() => { setModalVenta(true); setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); }} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button></div>
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-white">Remisiones y Ventas</h2>
+              <div className="space-x-2">
+                <button onClick={() => setModalReporteExcel(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition">📊 Descargar Reporte Excel</button>
+                <button onClick={() => { setModalVenta(true); setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); }} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button>
+              </div>
+            </div>
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Remisión N°</th><th className="p-3">Fecha</th><th className="p-3">Cliente / Vendedor</th><th className="p-3">Total</th><th className="p-3 text-right">Detalle</th></tr></thead>
               <tbody className="divide-y divide-slate-800">
@@ -930,6 +986,39 @@ function MainApp() {
         </div>
       )}
 
+      {/* Modal para configurar y descargar reporte Excel */}
+      {modalReporteExcel && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
+            <h3 className="font-bold text-white text-base">Descargar Reporte en Excel (CSV)</h3>
+            
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">Fecha de Inicio</label>
+                <input type="date" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.fechaInicio} onChange={e => setReporteFiltro({...reporteFiltro, fechaInicio: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Fecha Fin</label>
+                <input type="date" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.fechaFin} onChange={e => setReporteFiltro({...reporteFiltro, fechaFin: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Tipo de Registro</label>
+                <select className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.tipo} onChange={e => setReporteFiltro({...reporteFiltro, tipo: e.target.value})}>
+                  <option value="AMBOS">Ambos (Ventas y Reparaciones)</option>
+                  <option value="VENTAS">Solo Ventas de Repuestos</option>
+                  <option value="REPARACIONES">Solo Reparaciones (Servicio Técnico)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3">
+              <button onClick={() => setModalReporteExcel(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
+              <button onClick={generarReporteExcel} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition">Descargar Excel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 5. Modal Ver Detalle de Remisión */}
       {facturaSeleccionada && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
@@ -972,100 +1061,96 @@ function MainApp() {
         </div>
       )}
 
-      {/* 6. Documento Impreso PDF (TEXTOS MÁS GRANDES Y ESPACIO DE GARANTÍA/SELLO) */}
+      {/* 6. Documento Impreso PDF (OPTIMIZADO A MITAD DE HOJA CARTA Y TEXTOS GRANDES) */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
-          <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div id="seccion-impresion" className="space-y-4 text-base">
+          <div className="bg-white text-slate-900 w-full max-w-xl p-6 rounded-2xl space-y-3 shadow-2xl h-[50vh] max-h-[50vh] overflow-y-auto flex flex-col justify-between border-b-2 border-dashed border-slate-400">
+            <div id="seccion-impresion" className="space-y-3 text-sm">
               
-              <div className="flex items-center justify-between border-b-2 pb-3 gap-4">
-                <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between border-b pb-2 gap-3">
+                <div className="flex items-center gap-2">
                   {empresa.logoUrl && (
-                    <img src={empresa.logoUrl} alt="Logo" className="w-20 h-20 object-contain rounded-lg border p-1 bg-white shrink-0" />
+                    <img src={empresa.logoUrl} alt="Logo" className="w-14 h-14 object-contain rounded-lg border p-0.5 bg-white shrink-0" />
                   )}
                   <div>
-                    <h1 className="font-black text-2xl leading-tight">{empresa.nombre}</h1>
-                    <p className="text-sm text-slate-600">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
+                    <h1 className="font-black text-lg leading-tight">{empresa.nombre}</h1>
+                    <p className="text-xs text-slate-600">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
                   </div>
                 </div>
-                <h2 className="font-extrabold text-indigo-700 uppercase text-right text-lg shrink-0">
+                <h2 className="font-extrabold text-indigo-700 uppercase text-right text-base shrink-0">
                   {documentoImprimir.tipo === 'FACTURA' ? 'REMISIÓN' : 'ORDEN DE ENTRADA'}
                 </h2>
               </div>
 
               {documentoImprimir.tipo === 'ORDEN' && (
-                <div className="space-y-3 text-sm">
+                <div className="space-y-2 text-xs">
                   {documentoImprimir.idConsecutivo && (
-                    <p className="text-lg"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
+                    <p className="text-sm"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
                   )}
-                  <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
-                  <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
-                  <p><strong>Código de Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
-                  {documentoImprimir.data.numero_factura_asociada && (
-                    <p><strong>Remisión Asociada:</strong> {documentoImprimir.data.numero_factura_asociada}</p>
-                  )}
+                  <div className="grid grid-cols-2 gap-1">
+                    <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+                    <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <p><strong>Código Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
+                    <p><strong>Atendió:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
+                  </div>
                   <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
                   <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
                   <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
                   
-                  {Number(documentoImprimir.data.valor_estimado) > 0 && (
-                    <p><strong>Presupuesto Estimado:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
-                  )}
-
-                  {Number(documentoImprimir.data.total_pagar) > 0 && (
-                    <p className="font-bold text-emerald-700 text-lg"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
-                  )}
-
-                  {Array.isArray(documentoImprimir.data.observaciones) && documentoImprimir.data.observaciones.length > 0 && (
-                    <div className="mt-4 pt-3 border-t border-slate-300 space-y-1.5">
-                      <p className="font-bold text-slate-800 uppercase text-sm">Historial de Proceso y Avances:</p>
-                      {documentoImprimir.data.observaciones.map((obs, idx) => (
-                        <p key={idx} className="text-xs text-slate-700">▪️ [{obs.fecha}]: {obs.texto}</p>
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex gap-4">
+                    {Number(documentoImprimir.data.valor_estimado) > 0 && (
+                      <p><strong>Presupuesto Est.:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
+                    )}
+                    {Number(documentoImprimir.data.total_pagar) > 0 && (
+                      <p className="font-bold text-emerald-700 text-sm"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
+                    )}
+                  </div>
                 </div>
               )}
 
               {documentoImprimir.tipo === 'FACTURA' && (
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between text-base">
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between text-sm">
                     <p><strong>Remisión N°:</strong> <span className="font-black text-indigo-700">{documentoImprimir.data.numero_factura}</span></p>
                     <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
                   </div>
-                  <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
-                  <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
-                  <p><strong>Vendedor / Atendió:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
+                  <div className="grid grid-cols-2 gap-1">
+                    <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+                    <p><strong>Vendedor:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
+                  </div>
 
-                  <table className="w-full text-left border border-slate-300 mt-3 text-sm">
+                  <table className="w-full text-left border border-slate-300 mt-1 text-xs">
                     <thead className="bg-slate-100">
-                      <tr><th className="p-2.5 border">Descripción</th><th className="p-2.5 text-center border">Cant.</th><th className="p-2.5 text-right border">Precio</th></tr>
+                      <tr><th className="p-1.5 border">Descripción</th><th className="p-1.5 text-center border">Cant.</th><th className="p-1.5 text-right border">Precio</th></tr>
                     </thead>
                     <tbody>
                       {(documentoImprimir.data.items || []).map((it, idx) => (
-                        <tr key={idx}><td className="p-2.5 border">{it.descripcion}</td><td className="p-2.5 text-center border">{it.cantidad}</td><td className="p-2.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
+                        <tr key={idx}><td className="p-1.5 border">{it.descripcion}</td><td className="p-1.5 text-center border">{it.cantidad}</td><td className="p-1.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
                       ))}
                     </tbody>
                   </table>
-                  <p className="font-black text-emerald-700 text-xl text-right mt-3">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
+                  <p className="font-black text-emerald-700 text-base text-right mt-1">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
 
-                  {/* SECCIÓN DE GARANTÍA / SELLO FÍSICO */}
-                  <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-300 grid grid-cols-2 gap-6 text-xs">
-                    <div className="border border-slate-300 p-3 rounded-lg h-24 flex flex-col justify-between">
-                      <span className="font-bold text-slate-600 uppercase">Garantía del Servicio / Producto:</span>
+                  {/* ESPACIO GARANTÍA Y SELLO REDucido PARA MITAD DE HOJA */}
+                  <div className="mt-2 pt-2 border-t border-dashed border-slate-300 grid grid-cols-2 gap-4 text-[11px]">
+                    <div className="border border-slate-300 p-2 rounded h-16 flex flex-col justify-between">
+                      <span className="font-bold text-slate-600 uppercase text-[10px]">Garantía:</span>
                       <div className="border-b border-dotted border-slate-400 w-full mb-1"></div>
                       <div className="border-b border-dotted border-slate-400 w-full"></div>
                     </div>
-                    <div className="border border-slate-300 p-3 rounded-lg h-24 flex flex-col items-center justify-end text-center">
-                      <span className="text-[11px] text-slate-400 font-bold uppercase">Espacio para Sello / Firma</span>
+                    <div className="border border-slate-300 p-2 rounded h-16 flex flex-col items-center justify-end text-center">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">Sello / Firma</span>
                     </div>
                   </div>
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2 pt-4 no-imprimir">
-              <button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3">Cerrar</button>
-              <button onClick={() => window.print()} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold">Imprimir</button>
+
+            <div className="flex justify-end gap-2 pt-2 border-t no-imprimir">
+              <button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3 text-xs">Cerrar</button>
+              <button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-xs">Imprimir (Mitad Carta)</button>
             </div>
           </div>
         </div>
