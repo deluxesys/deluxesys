@@ -24,7 +24,6 @@ export function AppProvider({ children }) {
 
   const cargarDatos = async () => {
     try {
-      // Carga separada para que si algo falla, no bloquee el resto de la aplicación
       const resEmp = await supabase.from('empresa').select('*').limit(1);
       if (resEmp.data && resEmp.data.length > 0) {
         setEmpresa({ ...resEmp.data[0], logoUrl: resEmp.data[0].logo_url });
@@ -53,7 +52,6 @@ export function AppProvider({ children }) {
   };
 
   const login = (usr, pwd) => {
-    // Modo de emergencia invencible
     if (usuarios.length === 0 && usr === 'admin' && pwd === 'admin123') {
       const adminEmergencia = { id: 'emergencia', nombre: 'Admin Master', usuario: 'admin', rol_id: 'emergencia' };
       setUsuarioSesion(adminEmergencia);
@@ -103,7 +101,7 @@ export function AppProvider({ children }) {
       marca_modelo: ordenData.marca_modelo,
       serie: ordenData.serie,
       fallo_reportado: ordenData.fallo_reportado,
-      valor_estimado: ordenData.valor_estimado,
+      valor_estimado: Number(ordenData.valor_estimado) || 0,
       tecnico: usuarioSesion ? usuarioSesion.nombre : 'Técnico',
       fecha: new Date().toLocaleString('es-CO'),
       estado: 'Ingresado',
@@ -111,7 +109,10 @@ export function AppProvider({ children }) {
     };
 
     const { data: insertada, error } = await supabase.from('ordenes').insert([nueva]).select();
-    if (error || !insertada) return alert('Error guardando la orden en la nube.');
+    if (error || !insertada) {
+      console.error("Error Supabase:", error);
+      return alert(`Error guardando la orden en la nube: ${error?.message || 'Desconocido'}`);
+    }
     setOrdenes(prev => [insertada[0], ...prev]);
     return insertada[0];
   };
