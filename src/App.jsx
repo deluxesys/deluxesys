@@ -256,11 +256,11 @@ function LoginScreen() {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md space-y-6">
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-3">
           {empresa.logoUrl ? (
-            <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain mx-auto rounded-xl bg-slate-800 p-1 border border-slate-700" />
+            <img src={empresa.logoUrl} alt="Logo" className="w-32 h-32 object-contain mx-auto rounded-xl bg-slate-800 p-2 border border-slate-700 shadow-lg" />
           ) : (
-            <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center font-black text-white text-2xl mx-auto shadow-lg shadow-indigo-600/30">TF</div>
+            <div className="w-24 h-24 bg-indigo-600 rounded-2xl flex items-center justify-center font-black text-white text-3xl mx-auto shadow-lg shadow-indigo-600/30">TF</div>
           )}
           <h1 className="text-xl font-bold text-white">{empresa.nombre}</h1>
           <p className="text-xs text-slate-400">Ingresa tus credenciales para acceder al taller</p>
@@ -560,7 +560,11 @@ function MainApp() {
         {/* 5. PORTAL DEL CLIENTE INTERNO */}
         {tab === 'portal' && (
           <div className="max-w-xl mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4 text-center">
-            {empresa.logoUrl && <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain mx-auto rounded-xl bg-slate-800 p-1 border border-slate-700" />}
+            {empresa.logoUrl ? (
+              <img src={empresa.logoUrl} alt="Logo" className="w-32 h-32 object-contain mx-auto rounded-xl bg-slate-800 p-2 border border-slate-700 shadow-lg" />
+            ) : (
+              <div className="w-24 h-24 bg-indigo-600 rounded-2xl flex items-center justify-center font-black text-white text-3xl mx-auto shadow-lg shadow-indigo-600/30">TF</div>
+            )}
             <h2 className="text-xl font-bold text-white">{empresa.nombre}</h2>
             <p className="text-xs text-slate-400">Portal Público de Consulta de Estado de Reparación</p>
             <div className="flex gap-2">
@@ -638,7 +642,7 @@ function MainApp() {
               <div className="space-y-3 text-xs">
                 <div>
                   <label className="text-slate-400">Logo</label>
-                  <div className="flex items-center gap-3 mt-1">{empresa.logoUrl && <img src={empresa.logoUrl} className="w-12 h-12 object-contain bg-slate-800 border rounded-lg p-1" />} <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-xs text-white file:bg-indigo-600 file:text-white file:rounded-xl file:border-0 file:px-3 file:py-1.5 cursor-pointer" /></div>
+                  <div className="flex items-center gap-3 mt-1">{empresa.logoUrl && <img src={empresa.logoUrl} className="w-16 h-16 object-contain bg-slate-800 border rounded-lg p-1" />} <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-xs text-white file:bg-indigo-600 file:text-white file:rounded-xl file:border-0 file:px-3 file:py-1.5 cursor-pointer" /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className="text-slate-400">Nombre</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.nombre} onChange={e => setEmpresa({ ...empresa, nombre: e.target.value })} /></div>
@@ -828,12 +832,12 @@ function MainApp() {
                 <div className="space-y-2 pt-1 bg-slate-800/40 p-3 rounded-xl border border-slate-800 text-xs">
                   <input placeholder="Nombre Completo *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.nombre} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, nombre: e.target.value })} />
                   <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="Teléfono / WhatsApp *" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
-                    <input placeholder="Cédula / NIT" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
+                    <input placeholder="Teléfono / WhatsApp *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
+                    <input placeholder="Cédula / NIT" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="Correo Electrónico" type="email" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.email} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, email: e.target.value })} />
-                    <input placeholder="Dirección" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.direccion} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, direccion: e.target.value })} />
+                    <input placeholder="Correo Electrónico" type="email" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.email} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, email: e.target.value })} />
+                    <input placeholder="Dirección" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.direccion} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, direccion: e.target.value })} />
                   </div>
                 </div>
               )}
@@ -928,12 +932,19 @@ function MainApp() {
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
           <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div id="seccion-impresion" className="space-y-4 text-sm">
-              <div className="flex justify-between border-b pb-3">
-                <div>
-                  <h1 className="font-black text-xl">{empresa.nombre}</h1>
-                  <p className="text-xs text-slate-500">NIT: {empresa.nit || 'N/A'} | Tel: {empresa.telefono || 'N/A'}</p>
+              
+              {/* CABECERA FACTURA: LOGO A LA IZQUIERDA Y NOMBRE A LA DERECHA */}
+              <div className="flex items-center justify-between border-b pb-3 gap-4">
+                <div className="flex items-center gap-3">
+                  {empresa.logoUrl && (
+                    <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded-lg border p-1 bg-white shrink-0" />
+                  )}
+                  <div>
+                    <h1 className="font-black text-xl leading-tight">{empresa.nombre}</h1>
+                    <p className="text-xs text-slate-500">NIT: {empresa.nit || 'N/A'} | Tel: {empresa.telefono || 'N/A'}</p>
+                  </div>
                 </div>
-                <h2 className="font-extrabold text-indigo-600 uppercase">{documentoImprimir.tipo}</h2>
+                <h2 className="font-extrabold text-indigo-600 uppercase text-right shrink-0">{documentoImprimir.tipo}</h2>
               </div>
 
               {documentoImprimir.tipo === 'ORDEN' && (
@@ -1003,7 +1014,11 @@ function PortalPublico() {
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-slate-100 font-sans">
       <div className="max-w-xl w-full mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl text-center space-y-4">
-        {empresa.logoUrl && <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain mx-auto rounded-xl bg-slate-800 p-1 border border-slate-700" />}
+        {empresa.logoUrl ? (
+          <img src={empresa.logoUrl} alt="Logo" className="w-32 h-32 object-contain mx-auto rounded-xl bg-slate-800 p-2 border border-slate-700 shadow-lg" />
+        ) : (
+          <div className="w-24 h-24 bg-indigo-600 rounded-2xl flex items-center justify-center font-black text-white text-3xl mx-auto shadow-lg shadow-indigo-600/30">TF</div>
+        )}
         <h2 className="text-xl font-bold text-white mb-0">{empresa.nombre}</h2>
         <p className="text-xs text-slate-400">Portal Público de Consulta</p>
         
