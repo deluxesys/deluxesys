@@ -17,7 +17,6 @@ export default function PortalCliente() {
     setResultado(null);
 
     try {
-      // Busca la orden en Supabase y trae el nombre del cliente relacionado
       const { data, error } = await supabase
         .from('ordenes')
         .select(`*, clientes(nombre)`)
@@ -43,13 +42,13 @@ export default function PortalCliente() {
         <div className="space-y-2">
           <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center font-black text-white text-3xl mx-auto shadow-lg shadow-indigo-600/30">TF</div>
           <h1 className="text-2xl font-bold text-white">TechFix Soluciones</h1>
-          <p className="text-sm text-slate-400">Portal Público de Consulta de Reparaciones</p>
+          <p className="text-sm text-slate-400">Consulta el estado de tu reparación</p>
         </div>
 
         <form onSubmit={consultarOrden} className="flex gap-2">
           <input
             type="text"
-            placeholder="Ingresa tu código (ej. TK-89A1)"
+            placeholder="Ingresa tu código de seguimiento (ej. TK-89A1)"
             className="flex-1 bg-slate-800 border border-slate-700 p-3 rounded-xl text-white text-center font-bold font-mono uppercase focus:ring-2 focus:ring-indigo-500 outline-none"
             value={codigo}
             onChange={(e) => setCodigo(e.target.value.toUpperCase())}
