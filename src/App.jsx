@@ -81,12 +81,6 @@ export function AppProvider({ children }) {
 
   const generarCodigoSeguimiento = () => 'TK-' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
-  // Generador de número de factura consecutivo (ej. #1001, #1002...)
-  const generarNumeroFactura = () => {
-    const siguienteNum = 1001 + facturas.length;
-    return `#${siguienteNum}`;
-  };
-
   const agregarCliente = async (data) => {
     const { data: insertado, error } = await supabase.from('clientes').insert([data]).select();
     if (error || !insertado) {
@@ -159,7 +153,7 @@ export function AppProvider({ children }) {
   const facturarOrden = async (orden) => {
     const cliEncontrado = clientes.find(c => c.nombre.toLowerCase() === orden.cliente_nombre.toLowerCase());
     const telCliente = cliEncontrado ? cliEncontrado.telefono : (orden.cliente_telefono || 'N/A');
-    const numFacturaGenerado = generarNumeroFactura();
+    const numFacturaGenerado = `FAC-${Math.floor(Math.random() * 90000) + 10000}`;
 
     const nuevaFac = {
       numero_factura: numFacturaGenerado,
@@ -188,7 +182,7 @@ export function AppProvider({ children }) {
   const agregarVentaDirecta = async (clienteObj, itemsArray, totalCalculado) => {
     const nombreCliente = clienteObj ? clienteObj.nombre : 'Cliente Mostrador';
     const telefonoCliente = clienteObj ? (clienteObj.telefono || 'N/A') : 'N/A';
-    const numFacturaGenerado = generarNumeroFactura();
+    const numFacturaGenerado = `FAC-${Math.floor(Math.random() * 90000) + 10000}`;
 
     const nuevaFac = {
       numero_factura: numFacturaGenerado,
@@ -498,27 +492,31 @@ function MainApp() {
                   <tr><th className="p-3">ID Registro</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente</th><th className="p-3">Equipo</th><th className="p-3">Estado</th><th className="p-3">Presupuesto / Factura</th><th className="p-3 text-right">Acciones</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {ordenes.map(o => (
-                    <tr key={o.id} className="hover:bg-slate-800/40">
-                      <td className="p-3 font-bold text-indigo-400">#{o.id}</td>
-                      <td className="p-3 font-mono text-xs text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800/40">{o.codigo_seguimiento}</td>
-                      <td className="p-3 font-medium text-white">{o.cliente_nombre}<span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span></td>
-                      <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
-                      <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
-                      <td className="p-3 font-bold text-white">
-                        {o.valor_estimado ? `$ ${Number(o.valor_estimado).toLocaleString('es-CO')}` : '-'}
-                        {o.numero_factura_asociada && (
-                          <span className="block text-[11px] text-emerald-400 font-mono mt-0.5">Factura: {o.numero_factura_asociada}</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right space-x-1">
-                        {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
-                        <button onClick={() => enviarWhatsApp(o)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
-                        <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
-                        {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={async () => { const fac = await facturarOrden(o); if(fac){ alert('¡Facturada!'); setDocumentoImprimir({ tipo: 'FACTURA', data: fac }); } }} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">💵 Facturar</button>}
-                      </td>
-                    </tr>
-                  ))}
+                  {ordenes.map((o, index) => {
+                    // ID Registro consecutivo tipo #1001 basado en la posición o ID
+                    const idRegistroConsecutivo = `#${1001 + (ordenes.length - 1 - index)}`;
+                    return (
+                      <tr key={o.id} className="hover:bg-slate-800/40">
+                        <td className="p-3 font-bold text-indigo-400">{idRegistroConsecutivo}</td>
+                        <td className="p-3 font-mono text-xs text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800/40">{o.codigo_seguimiento}</td>
+                        <td className="p-3 font-medium text-white">{o.cliente_nombre}<span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span></td>
+                        <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
+                        <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
+                        <td className="p-3 font-bold text-white">
+                          {o.valor_estimado ? `$ ${Number(o.valor_estimado).toLocaleString('es-CO')}` : '-'}
+                          {o.numero_factura_asociada && (
+                            <span className="block text-[11px] text-emerald-400 font-mono mt-0.5">Factura: {o.numero_factura_asociada}</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-right space-x-1">
+                          {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
+                          <button onClick={() => enviarWhatsApp(o)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
+                          <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o, idConsecutivo: idRegistroConsecutivo })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
+                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={async () => { const fac = await facturarOrden(o); if(fac){ alert('¡Facturada!'); setDocumentoImprimir({ tipo: 'FACTURA', data: fac }); } }} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">💵 Facturar</button>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -858,11 +856,11 @@ function MainApp() {
                   <input placeholder="Nombre Completo *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.nombre} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, nombre: e.target.value })} />
                   <div className="grid grid-cols-2 gap-2">
                     <input placeholder="Teléfono / WhatsApp *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
-                    <input placeholder="Cédula / NIT" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
+                    <input placeholder="Cédula / NIT" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="Correo Electrónico" type="email" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.email} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, email: e.target.value })} />
-                    <input placeholder="Dirección" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.direccion} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, direccion: e.target.value })} />
+                    <input placeholder="Correo Electrónico" type="email" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.email} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, email: e.target.value })} />
+                    <input placeholder="Dirección" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.direccion} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, direccion: e.target.value })} />
                   </div>
                 </div>
               )}
@@ -974,6 +972,9 @@ function MainApp() {
 
               {documentoImprimir.tipo === 'ORDEN' && (
                 <div className="space-y-3 text-xs">
+                  {documentoImprimir.idConsecutivo && (
+                    <p><strong>N° Registro:</strong> {documentoImprimir.idConsecutivo}</p>
+                  )}
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
                   <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
                   <p><strong>Código de Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
