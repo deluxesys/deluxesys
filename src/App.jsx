@@ -103,9 +103,11 @@ export function AppProvider({ children }) {
       cliente_telefono: clienteSeleccionado.telefono,
       tipo_equipo: ordenData.tipo_equipo,
       marca_modelo: ordenData.marca_modelo,
+      serie: ordenData.serie || '',
       fallo_reportado: ordenData.fallo_reportado,
       valor_estimado: Number(ordenData.valor_estimado) || 0,
-      estado: 'Ingresado'
+      estado: 'Ingresado',
+      observaciones: [{ fecha: new Date().toLocaleString('es-CO'), texto: 'Orden de entrada registrada.' }]
     };
 
     const { data: insertada, error } = await supabase.from('ordenes').insert([nueva]).select();
@@ -119,15 +121,26 @@ export function AppProvider({ children }) {
   };
 
   const actualizarOrden = async (id, estado, obs, diag, costo) => {
+    const ordenObj = ordenes.find(o => o.id === id);
+    if (!ordenObj) return;
+
+    let obsArr = Array.isArray(ordenObj.observaciones) ? [...ordenObj.observaciones] : [];
+    if (obs && obs.trim()) {
+      obsArr.push({ fecha: new Date().toLocaleString('es-CO'), texto: obs.trim() });
+    }
+
     const updateData = {
       estado,
-      diagnostico: diag || '',
-      valor_estimado: costo !== undefined ? Number(costo) : 0
+      diagnostico: diag !== undefined ? diag : ordenObj.diagnostico,
+      valor_estimado: costo !== undefined ? Number(costo) : ordenObj.valor_estimado,
+      observaciones: obsArr
     };
 
     const { error } = await supabase.from('ordenes').update(updateData).eq('id', id);
     if (!error) {
       setOrdenes(prev => prev.map(o => o.id === id ? { ...o, ...updateData } : o));
+    } else {
+      alert('Error al actualizar la orden en Supabase.');
     }
   };
 
@@ -138,14 +151,24 @@ export function AppProvider({ children }) {
       fecha: new Date().toISOString().split('T')[0],
       total: orden.valor_estimado || 0,
       tipo: 'Servicio Técnico',
-      items: [{ descripcion: `Servicio Técnico (${orden.tipo_equipo} ${orden.marca_modelo})`, cantidad: 1, precio: orden.valor_estimado || 0 }]
+      items: [{ descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo})`, cantidad: 1, precio: orden.valor_estimado || 0 }],
+      detalles_equipo: {
+        tipo_equipo: orden.tipo_equipo,
+        marca_modelo: orden.marca_modelo,
+        serie: orden.serie,
+        fallo_reportado: orden.fallo_reportado,
+        diagnostico: orden.diagnostico,
+        observaciones: orden.observaciones || []
+      }
     };
 
     const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
     if (!error && insertada) {
       setFacturas(prev => [insertada[0], ...prev]);
-      await actualizarOrden(orden.id, 'Entregado / Facturado', '', orden.diagnostico, orden.valor_estimado);
+      await actualizarOrden(orden.id, 'Entregado / Facturado', 'Equipo entregado y facturado.', orden.diagnostico, orden.valor_estimado);
       return insertada[0];
+    } else {
+      alert('Error al generar la factura.');
     }
   };
 
@@ -275,9 +298,8 @@ function MainApp() {
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   const [formOrden, setFormOrden] = useState({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0 });
-  const [editOrdForm, setEditOrdForm] = useState({ estado: '', diagnostico: '', costo: 0 });
+  const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', costo: 0 });
   
-  // Venta directa
   const [clienteVenta, setClienteVenta] = useState('');
   const [itemsVenta, setItemsVenta] = useState([{ descripcion: '', cantidad: 1, precio: 0 }]);
 
@@ -457,7 +479,7 @@ function MainApp() {
                       <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
                       <td className="p-3 font-bold text-white">$ {(o.valor_estimado || 0).toLocaleString('es-CO')}</td>
                       <td className="p-3 text-right space-x-1">
-                        {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
+                        {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                         <button onClick={() => enviarWhatsApp(o)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
                         <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
                         {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={async () => { const fac = await facturarOrden(o); if(fac){ alert('¡Facturada!'); setDocumentoImprimir({ tipo: 'FACTURA', data: fac }); } }} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">💵 Facturar</button>}
@@ -599,25 +621,46 @@ function MainApp() {
 
       </main>
 
-      {/* MODALES ADICIONALES RESTAURADOS */}
+      {/* MODALES ADICIONALES ACTUALIZADOS */}
       
-      {/* 1. Modal Editar Diagnóstico */}
+      {/* 1. Modal Editar Diagnóstico y Añadir Comentarios/Avance */}
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-3">
-            <h3 className="font-bold text-white text-base">Modificar Orden</h3>
-            <select className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.estado} onChange={e => setEditOrdForm({ ...editOrdForm, estado: e.target.value })}>
-              <option value="Ingresado">Ingresado</option>
-              <option value="En Diagnóstico">En Diagnóstico</option>
-              <option value="Esperando Repuesto">Esperando Repuesto</option>
-              <option value="Reparado / Listo">Reparado / Listo</option>
-              <option value="Entregado / Facturado">Entregado / Facturado</option>
-            </select>
-            <textarea className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" rows={2} value={editOrdForm.diagnostico} onChange={e => setEditOrdForm({ ...editOrdForm, diagnostico: e.target.value })} placeholder="Diagnóstico técnico..." />
-            <input type="number" className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.costo} onChange={e => setEditOrdForm({ ...editOrdForm, costo: e.target.value })} placeholder="Costo..." />
+            <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.numero_orden || modalEditOrden.id?.toString().slice(0,5)}</h3>
+            
+            <div>
+              <label className="text-[11px] text-slate-400 block mb-1">Estado del Equipo</label>
+              <select className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.estado} onChange={e => setEditOrdForm({ ...editOrdForm, estado: e.target.value })}>
+                <option value="Ingresado">Ingresado</option>
+                <option value="En Diagnóstico">En Diagnóstico</option>
+                <option value="Esperando Repuesto">Esperando Repuesto</option>
+                <option value="Reparado / Listo">Reparado / Listo</option>
+                <option value="Entregado / Facturado">Entregado / Facturado</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400 block mb-1">Diagnóstico Técnico</label>
+              <textarea className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" rows={2} value={editOrdForm.diagnostico} onChange={e => setEditOrdForm({ ...editOrdForm, diagnostico: e.target.value })} placeholder="Diagnóstico técnico..." />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-indigo-400 font-bold block mb-1">+ Añadir Nuevo Comentario / Avance</label>
+              <input className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={editOrdForm.observacion} onChange={e => setEditOrdForm({ ...editOrdForm, observacion: e.target.value })} placeholder="Ej. Se cambió pantalla y probó fuente..." />
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400 block mb-1">Presupuesto / Costo ($)</label>
+              <input type="number" className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.costo} onChange={e => setEditOrdForm({ ...editOrdForm, costo: e.target.value })} />
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setModalEditOrden(null)} className="text-xs text-slate-400 px-3">Cancelar</button>
-              <button onClick={async () => { await actualizarOrden(modalEditOrden.id, editOrdForm.estado, '', editOrdForm.diagnostico, editOrdForm.costo); setModalEditOrden(null); }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar</button>
+              <button onClick={async () => { 
+                await actualizarOrden(modalEditOrden.id, editOrdForm.estado, editOrdForm.observacion, editOrdForm.diagnostico, editOrdForm.costo); 
+                setModalEditOrden(null); 
+              }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar Cambios</button>
             </div>
           </div>
         </div>
@@ -717,7 +760,7 @@ function MainApp() {
       {/* 5. Modal Ver Detalle de Factura */}
       {facturaSeleccionada && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-2">
               <h3 className="font-bold text-white text-base">Detalle de {facturaSeleccionada.numero_factura}</h3>
               <span className="text-xs font-bold text-emerald-400">{facturaSeleccionada.fecha}</span>
@@ -725,14 +768,19 @@ function MainApp() {
             <p className="text-xs text-slate-300"><strong>Cliente:</strong> {facturaSeleccionada.cliente_nombre}</p>
             <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
 
-            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
+            {facturaSeleccionada.detalles_equipo && (
+              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700 text-xs space-y-1">
+                <p className="font-bold text-indigo-400">Información del Equipo y Proceso:</p>
+                <p><strong>Equipo:</strong> {facturaSeleccionada.detalles_equipo.tipo_equipo} - {facturaSeleccionada.detalles_equipo.marca_modelo}</p>
+                <p><strong>Fallo Reportado:</strong> {facturaSeleccionada.detalles_equipo.fallo_reportado}</p>
+                <p><strong>Diagnóstico:</strong> {facturaSeleccionada.detalles_equipo.diagnostico || 'N/A'}</p>
+              </div>
+            )}
+
+            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-32 overflow-y-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800 text-slate-400">
-                  <tr>
-                    <th className="p-2">Ítem</th>
-                    <th className="p-2 text-center">Cant.</th>
-                    <th className="p-2 text-right">Precio</th>
-                  </tr>
+                  <tr><th className="p-2">Ítem</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {(facturaSeleccionada.items || []).map((it, idx) => (
@@ -758,17 +806,55 @@ function MainApp() {
         </div>
       )}
 
-      {/* 6. Documento Impreso PDF */}
+      {/* 6. Documento Impreso PDF (Orden o Factura Completa) */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
-          <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl">
+          <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div id="seccion-impresion" className="space-y-4 text-sm">
-              <div className="flex justify-between"><h1 className="font-black text-xl">{empresa.nombre}</h1><h2 className="font-extrabold text-indigo-600">DOCUMENTO OFICIAL</h2></div>
-              {documentoImprimir.tipo === 'ORDEN' && (<div className="space-y-2"><p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p><p><strong>Código Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p><p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo}</p><p><strong>Fallo:</strong> {documentoImprimir.data.fallo_reportado}</p></div>)}
-              {documentoImprimir.tipo === 'FACTURA' && (
+              <div className="flex justify-between border-b pb-3">
+                <div>
+                  <h1 className="font-black text-xl">{empresa.nombre}</h1>
+                  <p className="text-xs text-slate-500">NIT: {empresa.nit || 'N/A'} | Tel: {empresa.telefono || 'N/A'}</p>
+                </div>
+                <h2 className="font-extrabold text-indigo-600 uppercase">{documentoImprimir.tipo}</h2>
+              </div>
+
+              {documentoImprimir.tipo === 'ORDEN' && (
                 <div className="space-y-2 text-xs">
-                  <p><strong>Factura:</strong> {documentoImprimir.data.numero_factura}</p>
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+                  <p><strong>Código de Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
+                  <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
+                  <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
+                  <p><strong>Presupuesto Estimado:</strong> $ {(documentoImprimir.data.valor_estimado || 0).toLocaleString('es-CO')}</p>
+                </div>
+              )}
+
+              {documentoImprimir.tipo === 'FACTURA' && (
+                <div className="space-y-3 text-xs">
+                  <div className="flex justify-between">
+                    <p><strong>Factura N°:</strong> {documentoImprimir.data.numero_factura}</p>
+                    <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
+                  </div>
+                  <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+
+                  {/* Datos del equipo y proceso si viene de orden */}
+                  {documentoImprimir.data.detalles_equipo && (
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
+                      <p className="font-bold text-indigo-700">Detalles de Ingreso y Proceso:</p>
+                      <p><strong>Equipo:</strong> {documentoImprimir.data.detalles_equipo.tipo_equipo} {documentoImprimir.data.detalles_equipo.marca_modelo}</p>
+                      <p><strong>Fallo Inicial:</strong> {documentoImprimir.data.detalles_equipo.fallo_reportado}</p>
+                      <p><strong>Diagnóstico Final:</strong> {documentoImprimir.data.detalles_equipo.diagnostico || 'N/A'}</p>
+                      {documentoImprimir.data.detalles_equipo.observaciones?.length > 0 && (
+                        <div className="mt-1 pt-1 border-t border-slate-200">
+                          <p className="font-semibold text-slate-700">Bitácora / Avances:</p>
+                          {documentoImprimir.data.detalles_equipo.observaciones.map((obs, idx) => (
+                            <p key={idx} className="text-[11px] text-slate-600">- [{obs.fecha}]: {obs.texto}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <table className="w-full text-left border border-slate-300 mt-2">
                     <thead className="bg-slate-100">
                       <tr><th className="p-2 border">Descripción</th><th className="p-2 text-center border">Cant.</th><th className="p-2 text-right border">Precio</th></tr>
@@ -783,7 +869,10 @@ function MainApp() {
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2 pt-4 no-imprimir"><button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3">Cerrar</button><button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Imprimir</button></div>
+            <div className="flex justify-end gap-2 pt-4 no-imprimir">
+              <button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3">Cerrar</button>
+              <button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Imprimir</button>
+            </div>
           </div>
         </div>
       )}
