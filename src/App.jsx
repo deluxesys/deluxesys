@@ -100,7 +100,7 @@ export function AppProvider({ children }) {
     }
   };
 
-  const agregarOrden = async (ordenData, clienteSeleccionado) => {
+  const agregarOrden = async (ordenData, clienteSeleccionado, nombreUsuario) => {
     const nueva = {
       codigo_seguimiento: generarCodigoSeguimiento(),
       cliente_nombre: clienteSeleccionado.nombre,
@@ -112,8 +112,9 @@ export function AppProvider({ children }) {
       fallo_reportado: ordenData.fallo_reportado,
       valor_estimado: Number(ordenData.valor_estimado) || 0,
       total_pagar: 0,
+      usuario_creador: nombreUsuario || 'Sistema',
       estado: 'Ingresado',
-      observaciones: [{ fecha: new Date().toLocaleString('es-CO'), texto: 'Orden de entrada registrada.' }]
+      observaciones: [{ fecha: new Date().toLocaleString('es-CO'), texto: `Orden registrada por ${nombreUsuario || 'Sistema'}.` }]
     };
 
     const { data: insertada, error } = await supabase.from('ordenes').insert([nueva]).select();
@@ -152,7 +153,7 @@ export function AppProvider({ children }) {
     }
   };
 
-  const remisionarOrden = async (orden, idConsecutivoStr) => {
+  const remisionarOrden = async (orden, idConsecutivoStr, nombreUsuario) => {
     const cliEncontrado = clientes.find(c => c.nombre.toLowerCase() === orden.cliente_nombre.toLowerCase());
     const telCliente = cliEncontrado ? cliEncontrado.telefono : (orden.cliente_telefono || 'N/A');
     const numRemisionGenerado = idConsecutivoStr;
@@ -165,6 +166,7 @@ export function AppProvider({ children }) {
       fecha: new Date().toISOString().split('T')[0],
       total: valorCobro,
       tipo: 'Servicio Técnico',
+      usuario_creador: nombreUsuario || 'Sistema',
       items: [
         { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${orden.fallo_reportado} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: valorCobro }
       ]
@@ -182,7 +184,7 @@ export function AppProvider({ children }) {
     }
   };
 
-  const agregarVentaDirecta = async (clienteObj, itemsArray, totalCalculado) => {
+  const agregarVentaDirecta = async (clienteObj, itemsArray, totalCalculado, nombreUsuario) => {
     const nombreCliente = clienteObj ? clienteObj.nombre : 'Cliente Mostrador';
     const telefonoCliente = clienteObj ? (clienteObj.telefono || 'N/A') : 'N/A';
     const numRemisionGenerado = `REM-${Math.floor(Math.random() * 90000) + 10000}`;
@@ -194,6 +196,7 @@ export function AppProvider({ children }) {
       fecha: new Date().toISOString().split('T')[0],
       total: totalCalculado,
       tipo: 'Venta de Repuestos',
+      usuario_creador: nombreUsuario || 'Sistema',
       items: itemsArray
     };
 
@@ -467,7 +470,8 @@ function MainApp() {
                 if (!targetClient) return alert('Selecciona o registra un cliente.');
                 if (!formOrden.marca_modelo || !formOrden.fallo_reportado) return alert('Completa los datos del equipo.');
 
-                const nueva = await agregarOrden(formOrden, targetClient);
+                const nombreUsrActual = usuarioSesion ? usuarioSesion.nombre : 'Admin';
+                const nueva = await agregarOrden(formOrden, targetClient, nombreUsrActual);
                 if (nueva) {
                   alert(`¡Orden registrada!\nCódigo Cliente: ${nueva.codigo_seguimiento}`);
                   const idConsecutivoStr = `#${1001 + (ordenes.length)}`;
@@ -492,7 +496,7 @@ function MainApp() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800 text-slate-400 uppercase">
-                  <tr><th className="p-3">ID Registro</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente</th><th className="p-3">Equipo</th><th className="p-3">Estado</th><th className="p-3">Presupuesto / Total Pagar</th><th className="p-3 text-right">Acciones</th></tr>
+                  <tr><th className="p-3">ID Registro</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente / Atendió</th><th className="p-3">Equipo</th><th className="p-3">Estado</th><th className="p-3">Presupuesto / Total Pagar</th><th className="p-3 text-right">Acciones</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {ordenes.map((o, index) => {
@@ -501,7 +505,11 @@ function MainApp() {
                       <tr key={o.id} className="hover:bg-slate-800/40">
                         <td className="p-3 font-bold text-indigo-400">{idRegistroConsecutivo}</td>
                         <td className="p-3 font-mono text-xs text-amber-400 bg-amber-950/30 px-2 py-0.5 rounded border border-amber-800/40">{o.codigo_seguimiento}</td>
-                        <td className="p-3 font-medium text-white">{o.cliente_nombre}<span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span></td>
+                        <td className="p-3 font-medium text-white">
+                          {o.cliente_nombre}
+                          <span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span>
+                          <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Atendió: {o.usuario_creador || 'Sistema'}</span>
+                        </td>
                         <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
                         <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
                         <td className="p-3 font-bold text-white">
@@ -517,7 +525,7 @@ function MainApp() {
                           {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', presupuesto: o.valor_estimado || 0, totalPagar: o.total_pagar || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                           <button onClick={() => enviarWhatsApp(o, idRegistroConsecutivo)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
                           <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o, idConsecutivo: idRegistroConsecutivo })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
-                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={async () => { const fac = await remisionarOrden(o, idRegistroConsecutivo); if(fac){ alert('¡Remisión Generada!'); setDocumentoImprimir({ tipo: 'FACTURA', data: fac, idConsecutivo: idRegistroConsecutivo }); } }} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
+                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={async () => { const nombreUsrActual = usuarioSesion ? usuarioSesion.nombre : 'Admin'; const fac = await remisionarOrden(o, idRegistroConsecutivo, nombreUsrActual); if(fac){ alert('¡Remisión Generada!'); setDocumentoImprimir({ tipo: 'FACTURA', data: fac, idConsecutivo: idRegistroConsecutivo }); } }} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
                         </td>
                       </tr>
                     );
@@ -555,13 +563,16 @@ function MainApp() {
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
             <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-white">Remisiones y Ventas</h2><button onClick={() => { setModalVenta(true); setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); }} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button></div>
             <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Remisión N°</th><th className="p-3">Fecha</th><th className="p-3">Cliente</th><th className="p-3">Total</th><th className="p-3 text-right">Detalle</th></tr></thead>
+              <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Remisión N°</th><th className="p-3">Fecha</th><th className="p-3">Cliente / Vendedor</th><th className="p-3">Total</th><th className="p-3 text-right">Detalle</th></tr></thead>
               <tbody className="divide-y divide-slate-800">
                 {facturas.map(f => (
                   <tr key={f.id} className="hover:bg-slate-800/40">
                     <td className="p-3 font-bold text-indigo-400">{f.numero_factura}</td>
                     <td className="p-3 text-slate-400">{f.fecha}</td>
-                    <td className="p-3 font-medium text-white">{f.cliente_nombre}</td>
+                    <td className="p-3 font-medium text-white">
+                      {f.cliente_nombre}
+                      <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Vendedor: {f.usuario_creador || 'Sistema'}</span>
+                    </td>
                     <td className="p-3 font-extrabold text-white">$ {(f.total || 0).toLocaleString('es-CO')}</td>
                     <td className="p-3 text-right space-x-1">
                       <button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button>
@@ -906,7 +917,8 @@ function MainApp() {
                 const total = itemsVenta.reduce((acc, i) => acc + (i.cantidad * i.precio), 0);
                 if (total <= 0) return alert('Ingresa ítems con precio mayor a 0');
                 
-                const fac = await agregarVentaDirecta(clienteFinalObj, itemsVenta, total);
+                const nombreUsrActual = usuarioSesion ? usuarioSesion.nombre : 'Admin';
+                const fac = await agregarVentaDirecta(clienteFinalObj, itemsVenta, total, nombreUsrActual);
                 setModalVenta(false);
                 if(fac) {
                   alert('¡Remisión creada!');
@@ -928,6 +940,7 @@ function MainApp() {
             </div>
             <p className="text-xs text-slate-300"><strong>Cliente:</strong> {facturaSeleccionada.cliente_nombre}</p>
             <p className="text-xs text-slate-300"><strong>Teléfono:</strong> {facturaSeleccionada.cliente_telefono || 'N/A'}</p>
+            <p className="text-xs text-slate-300"><strong>Vendedor:</strong> <span className="text-indigo-300 font-semibold">{facturaSeleccionada.usuario_creador || 'Sistema'}</span></p>
             <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
 
             <div className="border border-slate-800 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
@@ -959,31 +972,31 @@ function MainApp() {
         </div>
       )}
 
-      {/* 6. Documento Impreso PDF */}
+      {/* 6. Documento Impreso PDF (TEXTOS MÁS GRANDES Y ESPACIO DE GARANTÍA/SELLO) */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
           <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div id="seccion-impresion" className="space-y-4 text-sm">
+            <div id="seccion-impresion" className="space-y-4 text-base">
               
-              <div className="flex items-center justify-between border-b pb-3 gap-4">
+              <div className="flex items-center justify-between border-b-2 pb-3 gap-4">
                 <div className="flex items-center gap-3">
                   {empresa.logoUrl && (
-                    <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded-lg border p-1 bg-white shrink-0" />
+                    <img src={empresa.logoUrl} alt="Logo" className="w-20 h-20 object-contain rounded-lg border p-1 bg-white shrink-0" />
                   )}
                   <div>
-                    <h1 className="font-black text-xl leading-tight">{empresa.nombre}</h1>
-                    <p className="text-xs text-slate-500">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
+                    <h1 className="font-black text-2xl leading-tight">{empresa.nombre}</h1>
+                    <p className="text-sm text-slate-600">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
                   </div>
                 </div>
-                <h2 className="font-extrabold text-indigo-600 uppercase text-right shrink-0">
+                <h2 className="font-extrabold text-indigo-700 uppercase text-right text-lg shrink-0">
                   {documentoImprimir.tipo === 'FACTURA' ? 'REMISIÓN' : 'ORDEN DE ENTRADA'}
                 </h2>
               </div>
 
               {documentoImprimir.tipo === 'ORDEN' && (
-                <div className="space-y-3 text-xs">
+                <div className="space-y-3 text-sm">
                   {documentoImprimir.idConsecutivo && (
-                    <p><strong>N° Registro:</strong> <span className="font-bold text-indigo-600">{documentoImprimir.idConsecutivo}</span></p>
+                    <p className="text-lg"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
                   )}
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
                   <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
@@ -1000,14 +1013,14 @@ function MainApp() {
                   )}
 
                   {Number(documentoImprimir.data.total_pagar) > 0 && (
-                    <p className="font-bold text-emerald-700"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
+                    <p className="font-bold text-emerald-700 text-lg"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
                   )}
 
                   {Array.isArray(documentoImprimir.data.observaciones) && documentoImprimir.data.observaciones.length > 0 && (
-                    <div className="mt-3 pt-2 border-t border-slate-200 space-y-1">
-                      <p className="font-bold text-slate-700 uppercase text-[11px]">Historial de Proceso y Avances:</p>
+                    <div className="mt-4 pt-3 border-t border-slate-300 space-y-1.5">
+                      <p className="font-bold text-slate-800 uppercase text-sm">Historial de Proceso y Avances:</p>
                       {documentoImprimir.data.observaciones.map((obs, idx) => (
-                        <p key={idx} className="text-[11px] text-slate-600">▪️ [{obs.fecha}]: {obs.texto}</p>
+                        <p key={idx} className="text-xs text-slate-700">▪️ [{obs.fecha}]: {obs.texto}</p>
                       ))}
                     </div>
                   )}
@@ -1015,31 +1028,44 @@ function MainApp() {
               )}
 
               {documentoImprimir.tipo === 'FACTURA' && (
-                <div className="space-y-3 text-xs">
-                  <div className="flex justify-between">
-                    <p><strong>Remisión N°:</strong> {documentoImprimir.data.numero_factura}</p>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between text-base">
+                    <p><strong>Remisión N°:</strong> <span className="font-black text-indigo-700">{documentoImprimir.data.numero_factura}</span></p>
                     <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
                   </div>
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
                   <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
+                  <p><strong>Vendedor / Atendió:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
 
-                  <table className="w-full text-left border border-slate-300 mt-2">
+                  <table className="w-full text-left border border-slate-300 mt-3 text-sm">
                     <thead className="bg-slate-100">
-                      <tr><th className="p-2 border">Descripción</th><th className="p-2 text-center border">Cant.</th><th className="p-2 text-right border">Precio</th></tr>
+                      <tr><th className="p-2.5 border">Descripción</th><th className="p-2.5 text-center border">Cant.</th><th className="p-2.5 text-right border">Precio</th></tr>
                     </thead>
                     <tbody>
                       {(documentoImprimir.data.items || []).map((it, idx) => (
-                        <tr key={idx}><td className="p-2 border">{it.descripcion}</td><td className="p-2 text-center border">{it.cantidad}</td><td className="p-2 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
+                        <tr key={idx}><td className="p-2.5 border">{it.descripcion}</td><td className="p-2.5 text-center border">{it.cantidad}</td><td className="p-2.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
                       ))}
                     </tbody>
                   </table>
-                  <p className="font-black text-emerald-600 text-base text-right mt-2">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
+                  <p className="font-black text-emerald-700 text-xl text-right mt-3">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
+
+                  {/* SECCIÓN DE GARANTÍA / SELLO FÍSICO */}
+                  <div className="mt-6 pt-4 border-t-2 border-dashed border-slate-300 grid grid-cols-2 gap-6 text-xs">
+                    <div className="border border-slate-300 p-3 rounded-lg h-24 flex flex-col justify-between">
+                      <span className="font-bold text-slate-600 uppercase">Garantía del Servicio / Producto:</span>
+                      <div className="border-b border-dotted border-slate-400 w-full mb-1"></div>
+                      <div className="border-b border-dotted border-slate-400 w-full"></div>
+                    </div>
+                    <div className="border border-slate-300 p-3 rounded-lg h-24 flex flex-col items-center justify-end text-center">
+                      <span className="text-[11px] text-slate-400 font-bold uppercase">Espacio para Sello / Firma</span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
             <div className="flex justify-end gap-2 pt-4 no-imprimir">
               <button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3">Cerrar</button>
-              <button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Imprimir</button>
+              <button onClick={() => window.print()} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold">Imprimir</button>
             </div>
           </div>
         </div>
