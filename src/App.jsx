@@ -155,9 +155,9 @@ export function AppProvider({ children }) {
       detalles_equipo: {
         tipo_equipo: orden.tipo_equipo,
         marca_modelo: orden.marca_modelo,
-        serie: orden.serie,
+        serie: orden.serie || 'N/A',
         fallo_reportado: orden.fallo_reportado,
-        diagnostico: orden.diagnostico,
+        diagnostico: orden.diagnostico || 'Pendiente',
         observaciones: orden.observaciones || []
       }
     };
@@ -564,14 +564,22 @@ function MainApp() {
             </div>
 
             {clienteSeleccionado && clienteSeleccionado !== 'NO_ENCONTRADO' && (
-              <div className="text-left bg-slate-800/60 p-4 rounded-xl border border-slate-700 space-y-2 text-xs">
+              <div className="text-left bg-slate-800/60 p-4 rounded-xl border border-slate-700 space-y-3 text-xs">
                 <div className="flex justify-between items-center border-b border-slate-700 pb-2">
                   <span className="font-bold text-indigo-400">Estado: {clienteSeleccionado.estado}</span>
                   <span className="font-mono text-[11px] text-amber-400">Código: {clienteSeleccionado.codigo_seguimiento}</span>
                 </div>
-                <p><strong className="text-white">Equipo:</strong> {clienteSeleccionado.tipo_equipo} {clienteSeleccionado.marca_modelo}</p>
+                <p><strong className="text-white">Equipo:</strong> {clienteSeleccionado.tipo_equipo} {clienteSeleccionado.marca_modelo} (S/N: {clienteSeleccionado.serie || 'N/A'})</p>
+                <p><strong className="text-white">Fallo Reportado:</strong> {clienteSeleccionado.fallo_reportado}</p>
                 <p><strong className="text-white">Diagnóstico Técnico:</strong> {clienteSeleccionado.diagnostico || 'Equipo en proceso de revisión.'}</p>
                 <p><strong className="text-white">Presupuesto Estimado:</strong> $ {(clienteSeleccionado.valor_estimado || 0).toLocaleString('es-CO')}</p>
+
+                <div className="pt-2 border-t border-slate-700 space-y-1">
+                  <p className="font-bold text-indigo-400">Historial y Proceso:</p>
+                  {(Array.isArray(clienteSeleccionado.observaciones) ? clienteSeleccionado.observaciones : []).map((obs, idx) => (
+                    <p key={idx} className="text-[11px] text-slate-300">🔹 <span className="text-slate-500">[{obs.fecha}]</span> {obs.texto}</p>
+                  ))}
+                </div>
               </div>
             )}
             {clienteSeleccionado === 'NO_ENCONTRADO' && <p className="text-xs text-amber-400">No se encontró ninguna orden con ese código.</p>}
@@ -621,14 +629,26 @@ function MainApp() {
 
       </main>
 
-      {/* MODALES ADICIONALES ACTUALIZADOS */}
+      {/* MODALES */}
       
       {/* 1. Modal Editar Diagnóstico y Añadir Comentarios/Avance */}
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-3">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3">
             <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.numero_orden || modalEditOrden.id?.toString().slice(0,5)}</h3>
             
+            {/* Mostrar historial previo de comentarios */}
+            <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700 max-h-36 overflow-y-auto space-y-1 text-xs">
+              <p className="font-bold text-indigo-400">Historial de Avances Anteriores:</p>
+              {(Array.isArray(modalEditOrden.observaciones) ? modalEditOrden.observaciones : []).length > 0 ? (
+                modalEditOrden.observaciones.map((obs, idx) => (
+                  <p key={idx} className="text-slate-300">▪️ <span className="text-slate-500">[{obs.fecha}]</span> {obs.texto}</p>
+                ))
+              ) : (
+                <p className="text-slate-500">Sin comentarios previos.</p>
+              )}
+            </div>
+
             <div>
               <label className="text-[11px] text-slate-400 block mb-1">Estado del Equipo</label>
               <select className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.estado} onChange={e => setEditOrdForm({ ...editOrdForm, estado: e.target.value })}>
@@ -647,7 +667,7 @@ function MainApp() {
 
             <div>
               <label className="text-[11px] text-indigo-400 font-bold block mb-1">+ Añadir Nuevo Comentario / Avance</label>
-              <input className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={editOrdForm.observacion} onChange={e => setEditOrdForm({ ...editOrdForm, observacion: e.target.value })} placeholder="Ej. Se cambió pantalla y probó fuente..." />
+              <input className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={editOrdForm.observacion} onChange={e => setEditOrdForm({ ...editOrdForm, observacion: e.target.value })} placeholder="Ej. Se reparó conector de carga..." />
             </div>
 
             <div>
@@ -700,9 +720,11 @@ function MainApp() {
               <p className="font-bold text-slate-400 uppercase">Órdenes Registradas:</p>
               {ordenes.filter(o => o.cliente_nombre === verHistorialCliente.nombre).length > 0 ? (
                 ordenes.filter(o => o.cliente_nombre === verHistorialCliente.nombre).map(o => (
-                  <div key={o.id} className="p-2 bg-slate-800 rounded border border-slate-700">
-                    <p className="font-bold text-white">Código: {o.codigo_seguimiento} | Estado: {o.estado}</p>
-                    <p className="text-slate-400">{o.tipo_equipo} {o.marca_modelo} - Fallo: {o.fallo_reportado}</p>
+                  <div key={o.id} className="p-2.5 bg-slate-800 rounded-xl border border-slate-700 space-y-1">
+                    <p className="font-bold text-white">Código: {o.codigo_seguimiento} | Estado: <span className="text-amber-400">{o.estado}</span></p>
+                    <p className="text-slate-300">Equipo: {o.tipo_equipo} {o.marca_modelo} (S/N: {o.serie || 'N/A'})</p>
+                    <p className="text-slate-400">Fallo: {o.fallo_reportado}</p>
+                    <p className="text-slate-400">Diagnóstico: {o.diagnostico || 'En proceso'}</p>
                   </div>
                 ))
               ) : (
@@ -768,16 +790,26 @@ function MainApp() {
             <p className="text-xs text-slate-300"><strong>Cliente:</strong> {facturaSeleccionada.cliente_nombre}</p>
             <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
 
-            {facturaSeleccionada.detalles_equipo && (
-              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700 text-xs space-y-1">
+            {facturaSeleccionada.detalles_equipo ? (
+              <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700 text-xs space-y-1.5 max-h-40 overflow-y-auto">
                 <p className="font-bold text-indigo-400">Información del Equipo y Proceso:</p>
-                <p><strong>Equipo:</strong> {facturaSeleccionada.detalles_equipo.tipo_equipo} - {facturaSeleccionada.detalles_equipo.marca_modelo}</p>
+                <p><strong>Equipo:</strong> {facturaSeleccionada.detalles_equipo.tipo_equipo} - {facturaSeleccionada.detalles_equipo.marca_modelo} (S/N: {facturaSeleccionada.detalles_equipo.serie})</p>
                 <p><strong>Fallo Reportado:</strong> {facturaSeleccionada.detalles_equipo.fallo_reportado}</p>
                 <p><strong>Diagnóstico:</strong> {facturaSeleccionada.detalles_equipo.diagnostico || 'N/A'}</p>
+                {facturaSeleccionada.detalles_equipo.observaciones?.length > 0 && (
+                  <div className="pt-1 border-t border-slate-700">
+                    <p className="font-semibold text-slate-300">Bitácora de Avances:</p>
+                    {facturaSeleccionada.detalles_equipo.observaciones.map((obs, idx) => (
+                      <p key={idx} className="text-[11px] text-slate-400">▪️ [{obs.fecha}]: {obs.texto}</p>
+                    ))}
+                  </div>
+                )}
               </div>
+            ) : (
+              <p className="text-[11px] text-slate-500 italic">Factura de venta directa (sin equipo en taller).</p>
             )}
 
-            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-32 overflow-y-auto">
+            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-28 overflow-y-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800 text-slate-400">
                   <tr><th className="p-2">Ítem</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio</th></tr>
@@ -806,7 +838,7 @@ function MainApp() {
         </div>
       )}
 
-      {/* 6. Documento Impreso PDF (Orden o Factura Completa) */}
+      {/* 6. Documento Impreso PDF */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
           <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -837,22 +869,24 @@ function MainApp() {
                   </div>
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
 
-                  {/* Datos del equipo y proceso si viene de orden */}
-                  {documentoImprimir.data.detalles_equipo && (
+                  {/* Datos del equipo y bitácora completos en factura */}
+                  {documentoImprimir.data.detalles_equipo ? (
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
-                      <p className="font-bold text-indigo-700">Detalles de Ingreso y Proceso:</p>
-                      <p><strong>Equipo:</strong> {documentoImprimir.data.detalles_equipo.tipo_equipo} {documentoImprimir.data.detalles_equipo.marca_modelo}</p>
+                      <p className="font-bold text-indigo-700">Detalles de Ingreso y Proceso en Taller:</p>
+                      <p><strong>Equipo:</strong> {documentoImprimir.data.detalles_equipo.tipo_equipo} {documentoImprimir.data.detalles_equipo.marca_modelo} (S/N: {documentoImprimir.data.detalles_equipo.serie})</p>
                       <p><strong>Fallo Inicial:</strong> {documentoImprimir.data.detalles_equipo.fallo_reportado}</p>
                       <p><strong>Diagnóstico Final:</strong> {documentoImprimir.data.detalles_equipo.diagnostico || 'N/A'}</p>
                       {documentoImprimir.data.detalles_equipo.observaciones?.length > 0 && (
                         <div className="mt-1 pt-1 border-t border-slate-200">
-                          <p className="font-semibold text-slate-700">Bitácora / Avances:</p>
+                          <p className="font-semibold text-slate-700">Historial / Proceso:</p>
                           {documentoImprimir.data.detalles_equipo.observaciones.map((obs, idx) => (
-                            <p key={idx} className="text-[11px] text-slate-600">- [{obs.fecha}]: {obs.texto}</p>
+                            <p key={idx} className="text-[11px] text-slate-600">▪️ [{obs.fecha}]: {obs.texto}</p>
                           ))}
                         </div>
                       )}
                     </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 italic">Venta directa de repuestos/accesorios.</p>
                   )}
 
                   <table className="w-full text-left border border-slate-300 mt-2">
