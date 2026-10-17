@@ -146,9 +146,14 @@ export function AppProvider({ children }) {
   };
 
   const facturarOrden = async (orden) => {
+    // Buscar el teléfono del cliente si existe en la lista general de clientes
+    const cliEncontrado = clientes.find(c => c.nombre.toLowerCase() === orden.cliente_nombre.toLowerCase());
+    const telCliente = cliEncontrado ? cliEncontrado.telefono : (orden.cliente_telefono || 'N/A');
+
     const nuevaFac = {
       numero_factura: `FAC-${Math.floor(Math.random() * 90000) + 10000}`,
       cliente_nombre: orden.cliente_nombre,
+      cliente_telefono: telCliente,
       fecha: new Date().toISOString().split('T')[0],
       total: orden.valor_estimado || 0,
       tipo: 'Servicio Técnico',
@@ -169,10 +174,14 @@ export function AppProvider({ children }) {
     }
   };
 
-  const agregarVentaDirecta = async (clienteNombre, itemsArray, totalCalculado) => {
+  const agregarVentaDirecta = async (clienteObj, itemsArray, totalCalculado) => {
+    const nombreCliente = clienteObj ? clienteObj.nombre : 'Cliente Mostrador';
+    const telefonoCliente = clienteObj ? (clienteObj.telefono || 'N/A') : 'N/A';
+
     const nuevaFac = {
       numero_factura: `FAC-${Math.floor(Math.random() * 90000) + 10000}`,
-      cliente_nombre: clienteNombre || 'Cliente Mostrador',
+      cliente_nombre: nombreCliente,
+      cliente_telefono: telefonoCliente,
       fecha: new Date().toISOString().split('T')[0],
       total: totalCalculado,
       tipo: 'Venta de Repuestos',
@@ -814,19 +823,18 @@ function MainApp() {
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setModalVenta(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
               <button onClick={async () => {
-                let nombreClienteFinal = 'Cliente Mostrador';
+                let clienteFinalObj = null;
                 if (tipoClienteVentaOpt === 'EXISTENTE' && clienteVentaSeleccionado) {
-                  nombreClienteFinal = clienteVentaSeleccionado.nombre;
+                  clienteFinalObj = clienteVentaSeleccionado;
                 } else if (tipoClienteVentaOpt === 'NUEVO') {
                   if (!formNuevoClienteVenta.nombre || !formNuevoClienteVenta.telefono) return alert('Ingresa el nombre y teléfono del cliente.');
-                  const cliGuardado = await agregarCliente(formNuevoClienteVenta);
-                  if (cliGuardado) nombreClienteFinal = cliGuardado.nombre;
+                  clienteFinalObj = await agregarCliente(formNuevoClienteVenta);
                 }
 
                 const total = itemsVenta.reduce((acc, i) => acc + (i.cantidad * i.precio), 0);
                 if (total <= 0) return alert('Ingresa ítems con precio mayor a 0');
                 
-                const fac = await agregarVentaDirecta(nombreClienteFinal, itemsVenta, total);
+                const fac = await agregarVentaDirecta(clienteFinalObj, itemsVenta, total);
                 setModalVenta(false);
                 if(fac) {
                   alert('¡Venta realizada!');
@@ -844,9 +852,10 @@ function MainApp() {
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-2">
               <h3 className="font-bold text-white text-base">Detalle de {facturaSeleccionada.numero_factura}</h3>
-              <span className="text-xs font-bold text-emerald-400">{facturaSeleccionada.fecha}</span>
+              <span className="text-xs font-bold text-emerald-400">Fecha: {facturaSeleccionada.fecha}</span>
             </div>
             <p className="text-xs text-slate-300"><strong>Cliente:</strong> {facturaSeleccionada.cliente_nombre}</p>
+            <p className="text-xs text-slate-300"><strong>Teléfono:</strong> {facturaSeleccionada.cliente_telefono || 'N/A'}</p>
             <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
 
             <div className="border border-slate-800 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
@@ -894,6 +903,7 @@ function MainApp() {
               {documentoImprimir.tipo === 'ORDEN' && (
                 <div className="space-y-3 text-xs">
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+                  <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
                   <p><strong>Código de Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
                   <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
                   <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
@@ -918,6 +928,7 @@ function MainApp() {
                     <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
                   </div>
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+                  <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
 
                   <table className="w-full text-left border border-slate-300 mt-2">
                     <thead className="bg-slate-100">
