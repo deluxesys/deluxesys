@@ -7,7 +7,7 @@ import { supabase } from './lib/supabase';
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [empresa, setEmpresa] = useState({ nombre: 'Cargando...', nit: '', telefono: '', direccion: '', logoUrl: '' });
+  const [empresa, setEmpresa] = useState({ nombre: 'Cargando...', nit: '', telefono: '', direccion: '', email: '', logoUrl: '' });
   const [roles, setRoles] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [clientes, setClientes] = useState([]);
@@ -26,9 +26,13 @@ export function AppProvider({ children }) {
     try {
       const resEmp = await supabase.from('empresa').select('*').limit(1);
       if (resEmp.data && resEmp.data.length > 0) {
-        setEmpresa({ ...resEmp.data[0], logoUrl: resEmp.data[0].logo_url });
+        setEmpresa({ 
+          ...resEmp.data[0], 
+          email: resEmp.data[0].email || 'contacto@syspcdoctor.com',
+          logoUrl: resEmp.data[0].logo_url 
+        });
       } else {
-        setEmpresa({ nombre: 'TechFix (Falta Configurar)', nit: '', telefono: '', direccion: '', logoUrl: '' });
+        setEmpresa({ nombre: 'TechFix (Falta Configurar)', nit: '', telefono: '', direccion: '', email: '', logoUrl: '' });
       }
 
       const resRol = await supabase.from('roles').select('*');
@@ -146,7 +150,6 @@ export function AppProvider({ children }) {
   };
 
   const facturarOrden = async (orden) => {
-    // Buscar el teléfono del cliente si existe en la lista general de clientes
     const cliEncontrado = clientes.find(c => c.nombre.toLowerCase() === orden.cliente_nombre.toLowerCase());
     const telCliente = cliEncontrado ? cliEncontrado.telefono : (orden.cliente_telefono || 'N/A');
 
@@ -209,7 +212,7 @@ export function AppProvider({ children }) {
   };
 
   const actualizarEmpresa = async (datos) => {
-    const updateData = { nombre: datos.nombre, nit: datos.nit, telefono: datos.telefono, direccion: datos.direccion, logo_url: datos.logoUrl };
+    const updateData = { nombre: datos.nombre, nit: datos.nit, telefono: datos.telefono, email: datos.email, direccion: datos.direccion, logo_url: datos.logoUrl };
     const { data: ext } = await supabase.from('empresa').select('id').limit(1);
     
     if (ext && ext.length > 0) {
@@ -311,6 +314,9 @@ function MainApp() {
   const [clienteVentaSeleccionado, setClienteVentaSeleccionado] = useState(null);
   const [formNuevoClienteVenta, setFormNuevoClienteVenta] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   const [itemsVenta, setItemsVenta] = useState([{ descripcion: '', cantidad: 1, precio: 0 }]);
+
+  // Estado para desplegable de historial en portal
+  const [mostrarHistorialPortal, setMostrarHistorialPortal] = useState(false);
 
   const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } });
   const [formUsuarioNuevo, setFormUsuarioNuevo] = useState({ nombre: '', usuario: '', clave: '', rolId: roles[0]?.id || '' });
@@ -569,6 +575,7 @@ function MainApp() {
                   const clean = busquedaCliente.trim().toUpperCase();
                   const res = ordenes.find(o => o.codigo_seguimiento && o.codigo_seguimiento.toUpperCase() === clean);
                   setClienteSeleccionado(res || 'NO_ENCONTRADO');
+                  setMostrarHistorialPortal(false);
                 }}
                 className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold"
               >
@@ -587,15 +594,39 @@ function MainApp() {
                 <p><strong className="text-white">Diagnóstico Técnico:</strong> {clienteSeleccionado.diagnostico || 'Equipo en proceso de revisión.'}</p>
                 <p><strong className="text-white">Presupuesto Estimado:</strong> $ {(clienteSeleccionado.valor_estimado || 0).toLocaleString('es-CO')}</p>
 
-                <div className="pt-2 border-t border-slate-700 space-y-1">
-                  <p className="font-bold text-indigo-400">Historial y Proceso:</p>
-                  {(Array.isArray(clienteSeleccionado.observaciones) ? clienteSeleccionado.observaciones : []).map((obs, idx) => (
-                    <p key={idx} className="text-[11px] text-slate-300">🔹 <span className="text-slate-500">[{obs.fecha}]</span> {obs.texto}</p>
-                  ))}
+                {/* HISTORIAL DESPLEGABLE */}
+                <div className="pt-2 border-t border-slate-700">
+                  <button 
+                    onClick={() => setMostrarHistorialPortal(!mostrarHistorialPortal)} 
+                    className="w-full flex justify-between items-center text-xs font-bold text-indigo-400 bg-slate-800/80 p-2.5 rounded-xl border border-slate-700 transition hover:bg-slate-800"
+                  >
+                    <span>📜 Ver historial de avances y procesos</span>
+                    <span>{mostrarHistorialPortal ? '▲' : '▼'}</span>
+                  </button>
+
+                  {mostrarHistorialPortal && (
+                    <div className="mt-2 space-y-1.5 p-3 bg-slate-900/90 rounded-xl border border-slate-800">
+                      {(Array.isArray(clienteSeleccionado.observaciones) ? clienteSeleccionado.observaciones : []).length > 0 ? (
+                        clienteSeleccionado.observaciones.map((obs, idx) => (
+                          <p key={idx} className="text-[11px] text-slate-300">🔹 <span className="text-slate-500 font-mono">[{obs.fecha}]</span> {obs.texto}</p>
+                        ))
+                      ) : (
+                        <p className="text-[11px] text-slate-500">Sin registros en el historial aún.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
             {clienteSeleccionado === 'NO_ENCONTRADO' && <p className="text-xs text-amber-400">No se encontró ninguna orden con ese código.</p>}
+
+            {/* DATOS DE LA EMPRESA EN EL PORTAL */}
+            <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+              <p className="font-bold text-slate-300">{empresa.nombre}</p>
+              {empresa.direccion && <p>📍 Dirección: {empresa.direccion}</p>}
+              {empresa.telefono && <p>📞 Teléfono: {empresa.telefono}</p>}
+              {empresa.email && <p>✉️ Correo: {empresa.email}</p>}
+            </div>
           </div>
         )}
 
@@ -612,6 +643,11 @@ function MainApp() {
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className="text-slate-400">Nombre</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.nombre} onChange={e => setEmpresa({ ...empresa, nombre: e.target.value })} /></div>
                   <div><label className="text-slate-400">NIT</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.nit} onChange={e => setEmpresa({ ...empresa, nit: e.target.value })} /></div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div><label className="text-slate-400">Teléfono</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.telefono} onChange={e => setEmpresa({ ...empresa, telefono: e.target.value })} /></div>
+                  <div><label className="text-slate-400">Correo</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.email} onChange={e => setEmpresa({ ...empresa, email: e.target.value })} /></div>
+                  <div><label className="text-slate-400">Dirección</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.direccion} onChange={e => setEmpresa({ ...empresa, direccion: e.target.value })} /></div>
                 </div>
                 <button onClick={async () => { await setEmpresa(empresa); alert('Guardado en la Nube'); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Cambios</button>
               </div>
@@ -956,30 +992,87 @@ function MainApp() {
 }
 
 // ==========================================
-// PORTAL PÚBLICO
+// PORTAL PÚBLICO (/portal)
 // ==========================================
 function PortalPublico() {
   const { empresa, ordenes } = useApp();
   const [codigoConsulta, setCodigoConsulta] = useState('');
   const [ordenConsultaResult, setOrdenConsultaResult] = useState(null);
+  const [mostrarHistorialPortal, setMostrarHistorialPortal] = useState(false);
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-slate-100 font-sans">
-      <div className="max-w-xl w-full mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl text-center">
-        {empresa.logoUrl && <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain mx-auto rounded-xl bg-slate-800 p-1 border border-slate-700 mb-4" />}
-        <h2 className="text-xl font-bold text-white mb-1">{empresa.nombre}</h2>
-        <p className="text-xs text-slate-400 mb-6">Portal Público de Consulta</p>
+      <div className="max-w-xl w-full mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl text-center space-y-4">
+        {empresa.logoUrl && <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain mx-auto rounded-xl bg-slate-800 p-1 border border-slate-700" />}
+        <h2 className="text-xl font-bold text-white mb-0">{empresa.nombre}</h2>
+        <p className="text-xs text-slate-400">Portal Público de Consulta</p>
+        
         <div className="flex gap-2">
-          <input placeholder="Ingresa tu Código (ej. TK-89A1)" className="flex-1 bg-slate-800 border border-slate-700 p-3 rounded-xl text-sm font-bold font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500" value={codigoConsulta} onChange={e => setCodigoConsulta(e.target.value.toUpperCase())} />
-          <button onClick={() => { const res = ordenes.find(o => o.codigo_seguimiento && o.codigo_seguimiento.toUpperCase() === codigoConsulta.trim().toUpperCase()); setOrdenConsultaResult(res || 'NO_ENCONTRADO'); }} className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold">Consultar</button>
+          <input 
+            placeholder="Ingresa tu Código (ej. TK-89A1)" 
+            className="flex-1 bg-slate-800 border border-slate-700 p-3 rounded-xl text-sm font-bold font-mono uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white" 
+            value={codigoConsulta} 
+            onChange={e => setCodigoConsulta(e.target.value.toUpperCase())} 
+          />
+          <button 
+            onClick={() => { 
+              const res = ordenes.find(o => o.codigo_seguimiento && o.codigo_seguimiento.toUpperCase() === codigoConsulta.trim().toUpperCase()); 
+              setOrdenConsultaResult(res || 'NO_ENCONTRADO'); 
+              setMostrarHistorialPortal(false);
+            }} 
+            className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-xl font-bold text-xs transition"
+          >
+            Consultar
+          </button>
         </div>
+
         {ordenConsultaResult && ordenConsultaResult !== 'NO_ENCONTRADO' && (
-          <div className="text-left bg-slate-800/60 p-5 rounded-xl border border-slate-700 space-y-3 text-sm mt-6">
-            <p className="font-bold text-indigo-400">Estado: {ordenConsultaResult.estado}</p>
-            <p className="text-white">Equipo: {ordenConsultaResult.tipo_equipo} {ordenConsultaResult.marca_modelo}</p>
-            <p className="text-white">Presupuesto: $ {(ordenConsultaResult.valor_estimado || 0).toLocaleString('es-CO')}</p>
+          <div className="text-left bg-slate-800/60 p-5 rounded-xl border border-slate-700 space-y-3 text-xs">
+            <div className="flex justify-between items-center border-b border-slate-700 pb-2">
+              <span className="font-bold text-indigo-400 text-sm">Estado: {ordenConsultaResult.estado}</span>
+              <span className="font-mono text-[11px] text-amber-400">Código: {ordenConsultaResult.codigo_seguimiento}</span>
+            </div>
+            <p className="text-white"><strong>Equipo:</strong> {ordenConsultaResult.tipo_equipo} {ordenConsultaResult.marca_modelo}</p>
+            <p className="text-white"><strong>Fallo Reportado:</strong> {ordenConsultaResult.fallo_reportado}</p>
+            <p className="text-white"><strong>Diagnóstico Técnico:</strong> {ordenConsultaResult.diagnostico || 'Equipo en proceso de revisión.'}</p>
+            <p className="text-white"><strong>Presupuesto Estimado:</strong> $ {(ordenConsultaResult.valor_estimado || 0).toLocaleString('es-CO')}</p>
+
+            {/* HISTORIAL DESPLEGABLE EN PORTAL PÚBLICO */}
+            <div className="pt-2 border-t border-slate-700">
+              <button 
+                onClick={() => setMostrarHistorialPortal(!mostrarHistorialPortal)} 
+                className="w-full flex justify-between items-center text-xs font-bold text-indigo-400 bg-slate-800 p-2.5 rounded-xl border border-slate-700 transition hover:bg-slate-700/80"
+              >
+                <span>📜 Ver historial de avances y procesos</span>
+                <span>{mostrarHistorialPortal ? '▲' : '▼'}</span>
+              </button>
+
+              {mostrarHistorialPortal && (
+                <div className="mt-2 space-y-1.5 p-3 bg-slate-900/90 rounded-xl border border-slate-800">
+                  {(Array.isArray(ordenConsultaResult.observaciones) ? ordenConsultaResult.observaciones : []).length > 0 ? (
+                    ordenConsultaResult.observaciones.map((obs, idx) => (
+                      <p key={idx} className="text-[11px] text-slate-300">🔹 <span className="text-slate-500 font-mono">[{obs.fecha}]</span> {obs.texto}</p>
+                    ))
+                  ) : (
+                    <p className="text-[11px] text-slate-500">Sin registros en el historial aún.</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
+
+        {ordenConsultaResult === 'NO_ENCONTRADO' && (
+          <p className="text-xs text-amber-400 py-2">No se encontró ninguna orden con ese código.</p>
+        )}
+
+        {/* DATOS DE LA EMPRESA EN PORTAL PÚBLICO */}
+        <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+          <p className="font-bold text-slate-300">{empresa.nombre}</p>
+          {empresa.direccion && <p>📍 Dirección: {empresa.direccion}</p>}
+          {empresa.telefono && <p>📞 Teléfono: {empresa.telefono}</p>}
+          {empresa.email && <p>✉️ Correo: {empresa.email}</p>}
+        </div>
       </div>
     </div>
   );
