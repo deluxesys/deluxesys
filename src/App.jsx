@@ -1059,31 +1059,31 @@ function MainApp() {
         </div>
       )}
 
-      {/* 6. Documento Impreso PDF (REAJUSTADO 25% MÁS GRANDE Y OPTIMIZADO A MITAD DE HOJA CARTA) */}
+      {/* 6. Documento Impreso PDF (TEXTOS 25% MÁS GRANDES Y ADAPTADO A MITAD DE HOJA CARTA) */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
-          <div className="bg-white text-slate-900 w-full max-w-xl p-6 rounded-2xl space-y-3 shadow-2xl h-[50vh] max-h-[50vh] overflow-y-auto flex flex-col justify-between border-b-2 border-dashed border-slate-400">
-            <div id="seccion-impresion" className="space-y-3 text-base">
+          <div className="bg-white text-slate-900 w-full max-w-xl p-5 rounded-2xl space-y-2 shadow-2xl h-[50vh] max-h-[50vh] overflow-y-auto flex flex-col justify-between border-b-2 border-dashed border-slate-400">
+            <div id="seccion-impresion" className="space-y-2 text-[17px]">
               
-              <div className="flex items-center justify-between border-b pb-2 gap-3">
+              <div className="flex items-center justify-between border-b pb-1 gap-2">
                 <div className="flex items-center gap-2">
                   {empresa.logoUrl && (
-                    <img src={empresa.logoUrl} alt="Logo" className="w-16 h-16 object-contain rounded-lg border p-0.5 bg-white shrink-0" />
+                    <img src={empresa.logoUrl} alt="Logo" className="w-14 h-14 object-contain rounded-lg border p-0.5 bg-white shrink-0" />
                   )}
                   <div>
-                    <h1 className="font-black text-xl leading-tight">{empresa.nombre}</h1>
-                    <p className="text-xs text-slate-600">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
+                    <h1 className="font-black text-2xl leading-tight">{empresa.nombre}</h1>
+                    <p className="text-sm text-slate-600">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
                   </div>
                 </div>
-                <h2 className="font-extrabold text-indigo-700 uppercase text-right text-lg shrink-0">
+                <h2 className="font-extrabold text-indigo-700 uppercase text-right text-xl shrink-0">
                   {documentoImprimir.tipo === 'FACTURA' ? 'REMISIÓN' : 'ORDEN DE ENTRADA'}
                 </h2>
               </div>
 
               {documentoImprimir.tipo === 'ORDEN' && (
-                <div className="space-y-2 text-sm">
+                <div className="space-y-1.5 text-base">
                   {documentoImprimir.idConsecutivo && (
-                    <p className="text-base"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
+                    <p className="text-lg"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
                   )}
                   <div className="grid grid-cols-2 gap-1">
                     <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
@@ -1102,15 +1102,15 @@ function MainApp() {
                       <p><strong>Presupuesto Est.:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
                     )}
                     {Number(documentoImprimir.data.total_pagar) > 0 && (
-                      <p className="font-bold text-emerald-700 text-base"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
+                      <p className="font-bold text-emerald-700 text-lg"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
                     )}
                   </div>
                 </div>
               )}
 
               {documentoImprimir.tipo === 'FACTURA' && (
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between text-base">
+                <div className="space-y-1.5 text-base">
+                  <div className="flex justify-between text-lg">
                     <p><strong>Remisión N°:</strong> <span className="font-black text-indigo-700">{documentoImprimir.data.numero_factura}</span></p>
                     <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
                   </div>
@@ -1119,26 +1119,26 @@ function MainApp() {
                     <p><strong>Vendedor:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
                   </div>
 
-                  <table className="w-full text-left border border-slate-300 mt-1 text-sm">
+                  <table className="w-full text-left border border-slate-300 mt-1 text-base">
                     <thead className="bg-slate-100">
-                      <tr><th className="p-2 border">Descripción</th><th className="p-2 text-center border">Cant.</th><th className="p-2 text-right border">Precio</th></tr>
+                      <tr><th className="p-1.5 border">Descripción</th><th className="p-1.5 text-center border">Cant.</th><th className="p-1.5 text-right border">Precio</th></tr>
                     </thead>
                     <tbody>
                       {(documentoImprimir.data.items || []).map((it, idx) => (
-                        <tr key={idx}><td className="p-2 border">{it.descripcion}</td><td className="p-2 text-center border">{it.cantidad}</td><td className="p-2 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
+                        <tr key={idx}><td className="p-1.5 border">{it.descripcion}</td><td className="p-1.5 text-center border">{it.cantidad}</td><td className="p-1.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
                       ))}
                     </tbody>
                   </table>
-                  <p className="font-black text-emerald-700 text-lg text-right mt-1">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
+                  <p className="font-black text-emerald-700 text-xl text-right mt-1">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
 
-                  {/* ESPACIO GARANTÍA Y SELLO REAJUSTADO */}
-                  <div className="mt-2 pt-2 border-t border-dashed border-slate-300 grid grid-cols-2 gap-4 text-xs">
-                    <div className="border border-slate-300 p-2 rounded h-16 flex flex-col justify-between">
+                  {/* ESPACIO GARANTÍA Y SELLO REAJUSTADO 25% MÁS GRANDE */}
+                  <div className="mt-1.5 pt-1.5 border-t border-dashed border-slate-300 grid grid-cols-2 gap-3 text-sm">
+                    <div className="border border-slate-300 p-2 rounded h-14 flex flex-col justify-between">
                       <span className="font-bold text-slate-600 uppercase text-xs">Garantía:</span>
                       <div className="border-b border-dotted border-slate-400 w-full mb-1"></div>
                       <div className="border-b border-dotted border-slate-400 w-full"></div>
                     </div>
-                    <div className="border border-slate-300 p-2 rounded h-16 flex flex-col items-center justify-end text-center">
+                    <div className="border border-slate-300 p-2 rounded h-14 flex flex-col items-center justify-end text-center">
                       <span className="text-xs text-slate-400 font-bold uppercase">Sello / Firma</span>
                     </div>
                   </div>
