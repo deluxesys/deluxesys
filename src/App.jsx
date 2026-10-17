@@ -101,6 +101,7 @@ export function AppProvider({ children }) {
       codigo_seguimiento: generarCodigoSeguimiento(),
       cliente_nombre: clienteSeleccionado.nombre,
       cliente_telefono: clienteSeleccionado.telefono,
+      cliente_email: clienteSeleccionado.email || '',
       tipo_equipo: ordenData.tipo_equipo,
       marca_modelo: ordenData.marca_modelo,
       serie: ordenData.serie || '',
@@ -145,7 +146,6 @@ export function AppProvider({ children }) {
   };
 
   const facturarOrden = async (orden) => {
-    // Estructura limpia compatible con las columnas estándar de facturas
     const nuevaFac = {
       numero_factura: `FAC-${Math.floor(Math.random() * 90000) + 10000}`,
       cliente_nombre: orden.cliente_nombre,
@@ -297,13 +297,18 @@ function MainApp() {
   const [formOrden, setFormOrden] = useState({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0 });
   const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', costo: 0 });
   
-  const [clienteVenta, setClienteVenta] = useState('');
+  // Estados específicos para Venta Directa con selección de cliente
+  const [tipoClienteVentaOpt, setTipoClienteVentaOpt] = useState('EXISTENTE');
+  const [busquedaClienteVenta, setBusquedaClienteVenta] = useState('');
+  const [clienteVentaSeleccionado, setClienteVentaSeleccionado] = useState(null);
+  const [formNuevoClienteVenta, setFormNuevoClienteVenta] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   const [itemsVenta, setItemsVenta] = useState([{ descripcion: '', cantidad: 1, precio: 0 }]);
 
   const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } });
   const [formUsuarioNuevo, setFormUsuarioNuevo] = useState({ nombre: '', usuario: '', clave: '', rolId: roles[0]?.id || '' });
 
   const clientesFiltradosBusqueda = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaCliente.toLowerCase()) || c.telefono.includes(busquedaCliente));
+  const clientesFiltradosVenta = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaClienteVenta.toLowerCase()) || c.telefono.includes(busquedaClienteVenta));
 
   const enviarWhatsApp = (orden) => {
     const msg = `Hola *${orden.cliente_nombre}* 👋. Te saludamos de *${empresa.nombre}*.\nTu equipo *${orden.tipo_equipo} ${orden.marca_modelo}* se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance usando tu *Código Único: ${orden.codigo_seguimiento}* en nuestra plataforma.`;
@@ -410,7 +415,10 @@ function MainApp() {
                     <input placeholder="Teléfono / WhatsApp *" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.telefono} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono: e.target.value })} />
                     <input placeholder="Cédula / NIT" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.cedula} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, cedula: e.target.value })} />
                   </div>
-                  <input placeholder="Dirección" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.direccion} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, direccion: e.target.value })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input placeholder="Correo Electrónico" type="email" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.email} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, email: e.target.value })} />
+                    <input placeholder="Dirección" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.direccion} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, direccion: e.target.value })} />
+                  </div>
                 </div>
               )}
             </div>
@@ -514,7 +522,7 @@ function MainApp() {
         {/* 4. FACTURACIÓN */}
         {tab === 'facturacion' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-            <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-white">Facturación y Ventas</h2><button onClick={() => setModalVenta(true)} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button></div>
+            <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-white">Facturación y Ventas</h2><button onClick={() => { setModalVenta(true); setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); }} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button></div>
             <table className="w-full text-left text-xs text-slate-300">
               <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Factura</th><th className="p-3">Fecha</th><th className="p-3">Cliente</th><th className="p-3">Total</th><th className="p-3 text-right">Detalle</th></tr></thead>
               <tbody className="divide-y divide-slate-800">
@@ -690,6 +698,7 @@ function MainApp() {
             <input placeholder="Nombre *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.nombre} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, nombre: e.target.value })} />
             <input placeholder="Teléfono *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.telefono} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono: e.target.value })} />
             <input placeholder="Cédula / NIT" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.cedula} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, cedula: e.target.value })} />
+            <input placeholder="Correo Electrónico" type="email" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.email} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, email: e.target.value })} />
             <input placeholder="Dirección" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.direccion} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, direccion: e.target.value })} />
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setModalEditCliente(null)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
@@ -734,14 +743,60 @@ function MainApp() {
         </div>
       )}
 
-      {/* 4. Modal Venta Directa */}
+      {/* 4. Modal Venta Directa con Selección de Cliente */}
       {modalVenta && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-white text-base">Emitir Venta Directa / Repuesto</h3>
-            <input placeholder="Nombre del Cliente" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={clienteVenta} onChange={e => setClienteVenta(e.target.value)} />
-
+            
+            {/* Selector Cliente Existente o Nuevo para Venta */}
             <div className="space-y-2">
+              <label className="text-xs font-bold text-indigo-400 uppercase">Cliente</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => { setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); }} className={`p-2 rounded-xl text-xs font-bold border transition ${tipoClienteVentaOpt === 'EXISTENTE' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>Buscar Existente</button>
+                <button type="button" onClick={() => { setTipoClienteVentaOpt('NUEVO'); setClienteVentaSeleccionado(null); }} className={`p-2 rounded-xl text-xs font-bold border transition ${tipoClienteVentaOpt === 'NUEVO' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>+ Cliente Nuevo</button>
+              </div>
+
+              {tipoClienteVentaOpt === 'EXISTENTE' && (
+                <div className="relative pt-1">
+                  {!clienteVentaSeleccionado ? (
+                    <div className="relative">
+                      <input type="text" placeholder="Buscar cliente por Nombre o Celular..." className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={busquedaClienteVenta} onChange={e => setBusquedaClienteVenta(e.target.value)} />
+                      {busquedaClienteVenta.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 max-h-36 overflow-y-auto">
+                          {clientesFiltradosVenta.length > 0 ? clientesFiltradosVenta.map(c => (
+                            <div key={c.id} onClick={() => { setClienteVentaSeleccionado(c); setBusquedaClienteVenta(''); }} className="p-2.5 hover:bg-slate-700 cursor-pointer text-xs border-b border-slate-700/50">
+                              <p className="font-bold text-white">{c.nombre}</p><p className="text-[11px] text-indigo-400">Tel: {c.telefono}</p>
+                            </div>
+                          )) : <p className="p-3 text-xs text-slate-500">No se encontraron coincidencias.</p>}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-indigo-950/60 border border-indigo-700/60 p-2.5 rounded-xl flex justify-between items-center text-xs">
+                      <div><p className="font-bold text-white">{clienteVentaSeleccionado.nombre}</p><p className="text-indigo-300">Tel: {clienteVentaSeleccionado.telefono}</p></div>
+                      <button onClick={() => setClienteVentaSeleccionado(null)} className="text-slate-400 hover:text-white font-bold text-xs">Cambiar</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tipoClienteVentaOpt === 'NUEVO' && (
+                <div className="space-y-2 pt-1 bg-slate-800/40 p-3 rounded-xl border border-slate-800 text-xs">
+                  <input placeholder="Nombre Completo *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.nombre} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, nombre: e.target.value })} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input placeholder="Teléfono / WhatsApp *" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
+                    <input placeholder="Cédula / NIT" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input placeholder="Correo Electrónico" type="email" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.email} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, email: e.target.value })} />
+                    <input placeholder="Dirección" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.direccion} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, direccion: e.target.value })} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2 pt-2">
               <label className="text-xs font-bold text-slate-400 uppercase">Artículos / Ítems</label>
               {itemsVenta.map((it, idx) => (
                 <div key={idx} className="flex gap-2">
@@ -761,9 +816,19 @@ function MainApp() {
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setModalVenta(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
               <button onClick={async () => {
+                let nombreClienteFinal = 'Cliente Mostrador';
+                if (tipoClienteVentaOpt === 'EXISTENTE' && clienteVentaSeleccionado) {
+                  nombreClienteFinal = clienteVentaSeleccionado.nombre;
+                } else if (tipoClienteVentaOpt === 'NUEVO') {
+                  if (!formNuevoClienteVenta.nombre || !formNuevoClienteVenta.telefono) return alert('Ingresa el nombre y teléfono del cliente.');
+                  const cliGuardado = await agregarCliente(formNuevoClienteVenta);
+                  if (cliGuardado) nombreClienteFinal = cliGuardado.nombre;
+                }
+
                 const total = itemsVenta.reduce((acc, i) => acc + (i.cantidad * i.precio), 0);
                 if (total <= 0) return alert('Ingresa ítems con precio mayor a 0');
-                const fac = await agregarVentaDirecta(clienteVenta, itemsVenta, total);
+                
+                const fac = await agregarVentaDirecta(nombreClienteFinal, itemsVenta, total);
                 setModalVenta(false);
                 if(fac) {
                   alert('¡Venta realizada!');
@@ -815,7 +880,7 @@ function MainApp() {
         </div>
       )}
 
-      {/* 6. Documento Impreso PDF (Orden o Factura con Historial Completo) */}
+      {/* 6. Documento Impreso PDF */}
       {documentoImprimir && (
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
           <div className="bg-white text-slate-900 w-full max-w-xl p-8 rounded-2xl space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -837,7 +902,6 @@ function MainApp() {
                   <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
                   <p><strong>Presupuesto Estimado:</strong> $ {(documentoImprimir.data.valor_estimado || 0).toLocaleString('es-CO')}</p>
 
-                  {/* Historial de avances en el PDF de la orden */}
                   {Array.isArray(documentoImprimir.data.observaciones) && documentoImprimir.data.observaciones.length > 0 && (
                     <div className="mt-3 pt-2 border-t border-slate-200 space-y-1">
                       <p className="font-bold text-slate-700 uppercase text-[11px]">Historial de Proceso y Avances:</p>
