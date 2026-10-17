@@ -81,6 +81,12 @@ export function AppProvider({ children }) {
 
   const generarCodigoSeguimiento = () => 'TK-' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
+  // Generador de número de factura consecutivo (ej. #1001, #1002...)
+  const generarNumeroFactura = () => {
+    const siguienteNum = 1001 + facturas.length;
+    return `#${siguienteNum}`;
+  };
+
   const agregarCliente = async (data) => {
     const { data: insertado, error } = await supabase.from('clientes').insert([data]).select();
     if (error || !insertado) {
@@ -125,7 +131,7 @@ export function AppProvider({ children }) {
     return insertada[0];
   };
 
-  const actualizarOrden = async (id, estado, obs, diag, costo) => {
+  const actualizarOrden = async (id, estado, obs, diag, costo, facturaAsociada = null) => {
     const ordenObj = ordenes.find(o => o.id === id);
     if (!ordenObj) return;
 
@@ -138,7 +144,8 @@ export function AppProvider({ children }) {
       estado,
       diagnostico: diag !== undefined ? diag : ordenObj.diagnostico,
       valor_estimado: costo !== undefined ? Number(costo) : ordenObj.valor_estimado,
-      observaciones: obsArr
+      observaciones: obsArr,
+      ...(facturaAsociada ? { numero_factura_asociada: facturaAsociada } : {})
     };
 
     const { error } = await supabase.from('ordenes').update(updateData).eq('id', id);
@@ -152,9 +159,10 @@ export function AppProvider({ children }) {
   const facturarOrden = async (orden) => {
     const cliEncontrado = clientes.find(c => c.nombre.toLowerCase() === orden.cliente_nombre.toLowerCase());
     const telCliente = cliEncontrado ? cliEncontrado.telefono : (orden.cliente_telefono || 'N/A');
+    const numFacturaGenerado = generarNumeroFactura();
 
     const nuevaFac = {
-      numero_factura: `FAC-${Math.floor(Math.random() * 90000) + 10000}`,
+      numero_factura: numFacturaGenerado,
       cliente_nombre: orden.cliente_nombre,
       cliente_telefono: telCliente,
       fecha: new Date().toISOString().split('T')[0],
@@ -168,7 +176,7 @@ export function AppProvider({ children }) {
     const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
     if (!error && insertada) {
       setFacturas(prev => [insertada[0], ...prev]);
-      await actualizarOrden(orden.id, 'Entregado / Facturado', 'Equipo entregado y facturado.', orden.diagnostico, orden.valor_estimado);
+      await actualizarOrden(orden.id, 'Entregado / Facturado', 'Equipo entregado y facturado bajo ' + numFacturaGenerado, orden.diagnostico, orden.valor_estimado, numFacturaGenerado);
       return insertada[0];
     } else {
       console.error(error);
@@ -180,9 +188,10 @@ export function AppProvider({ children }) {
   const agregarVentaDirecta = async (clienteObj, itemsArray, totalCalculado) => {
     const nombreCliente = clienteObj ? clienteObj.nombre : 'Cliente Mostrador';
     const telefonoCliente = clienteObj ? (clienteObj.telefono || 'N/A') : 'N/A';
+    const numFacturaGenerado = generarNumeroFactura();
 
     const nuevaFac = {
-      numero_factura: `FAC-${Math.floor(Math.random() * 90000) + 10000}`,
+      numero_factura: numFacturaGenerado,
       cliente_nombre: nombreCliente,
       cliente_telefono: telefonoCliente,
       fecha: new Date().toISOString().split('T')[0],
@@ -486,7 +495,7 @@ function MainApp() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800 text-slate-400 uppercase">
-                  <tr><th className="p-3">ID Registro</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente</th><th className="p-3">Equipo</th><th className="p-3">Estado</th><th className="p-3">Presupuesto</th><th className="p-3 text-right">Acciones</th></tr>
+                  <tr><th className="p-3">ID Registro</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente</th><th className="p-3">Equipo</th><th className="p-3">Estado</th><th className="p-3">Presupuesto / Factura</th><th className="p-3 text-right">Acciones</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {ordenes.map(o => (
@@ -496,7 +505,12 @@ function MainApp() {
                       <td className="p-3 font-medium text-white">{o.cliente_nombre}<span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span></td>
                       <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
                       <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
-                      <td className="p-3 font-bold text-white">{o.valor_estimado ? `$ ${Number(o.valor_estimado).toLocaleString('es-CO')}` : '-'}</td>
+                      <td className="p-3 font-bold text-white">
+                        {o.valor_estimado ? `$ ${Number(o.valor_estimado).toLocaleString('es-CO')}` : '-'}
+                        {o.numero_factura_asociada && (
+                          <span className="block text-[11px] text-emerald-400 font-mono mt-0.5">Factura: {o.numero_factura_asociada}</span>
+                        )}
+                      </td>
                       <td className="p-3 text-right space-x-1">
                         {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', costo: o.valor_estimado || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                         <button onClick={() => enviarWhatsApp(o)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
@@ -597,12 +611,14 @@ function MainApp() {
                 <p><strong className="text-white">Fallo Reportado:</strong> {clienteSeleccionado.fallo_reportado}</p>
                 <p><strong className="text-white">Diagnóstico Técnico:</strong> {clienteSeleccionado.diagnostico || 'Equipo en proceso de revisión.'}</p>
                 
-                {/* Presupuesto Estimado: solo si tiene valor */}
+                {clienteSeleccionado.numero_factura_asociada && (
+                  <p><strong className="text-emerald-400">Factura Asociada:</strong> <span className="text-emerald-300 font-mono font-bold">{clienteSeleccionado.numero_factura_asociada}</span></p>
+                )}
+
                 {Number(clienteSeleccionado.valor_estimado) > 0 && (
                   <p><strong className="text-white">Presupuesto Estimado:</strong> $ {Number(clienteSeleccionado.valor_estimado).toLocaleString('es-CO')}</p>
                 )}
 
-                {/* Valor a Pagar: solo si está reparado/listo o entregado/facturado */}
                 {(clienteSeleccionado.estado === 'Reparado / Listo' || clienteSeleccionado.estado === 'Entregado / Facturado') && Number(clienteSeleccionado.valor_estimado) > 0 && (
                   <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Valor a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(clienteSeleccionado.valor_estimado).toLocaleString('es-CO')}</span></p>
                 )}
@@ -841,7 +857,7 @@ function MainApp() {
                 <div className="space-y-2 pt-1 bg-slate-800/40 p-3 rounded-xl border border-slate-800 text-xs">
                   <input placeholder="Nombre Completo *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.nombre} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, nombre: e.target.value })} />
                   <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="Teléfono / WhatsApp *" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
+                    <input placeholder="Teléfono / WhatsApp *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
                     <input placeholder="Cédula / NIT" className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -961,6 +977,9 @@ function MainApp() {
                   <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
                   <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
                   <p><strong>Código de Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
+                  {documentoImprimir.data.numero_factura_asociada && (
+                    <p><strong>Factura Asociada:</strong> {documentoImprimir.data.numero_factura_asociada}</p>
+                  )}
                   <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
                   <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
                   <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
@@ -1067,12 +1086,14 @@ function PortalPublico() {
             <p className="text-white"><strong>Fallo Reportado:</strong> {ordenConsultaResult.fallo_reportado}</p>
             <p className="text-white"><strong>Diagnóstico Técnico:</strong> {ordenConsultaResult.diagnostico || 'Equipo en proceso de revisión.'}</p>
             
-            {/* Presupuesto Estimado: solo si tiene valor */}
+            {ordenConsultaResult.numero_factura_asociada && (
+              <p className="text-white"><strong>Factura Asociada:</strong> <span className="text-emerald-400 font-mono font-bold">{ordenConsultaResult.numero_factura_asociada}</span></p>
+            )}
+
             {Number(ordenConsultaResult.valor_estimado) > 0 && (
               <p className="text-white"><strong>Presupuesto Estimado:</strong> $ {Number(ordenConsultaResult.valor_estimado).toLocaleString('es-CO')}</p>
             )}
 
-            {/* Valor a Pagar: solo si está reparado/listo o entregado/facturado */}
             {(ordenConsultaResult.estado === 'Reparado / Listo' || ordenConsultaResult.estado === 'Entregado / Facturado') && Number(ordenConsultaResult.valor_estimado) > 0 && (
               <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Valor a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(ordenConsultaResult.valor_estimado).toLocaleString('es-CO')}</span></p>
             )}
