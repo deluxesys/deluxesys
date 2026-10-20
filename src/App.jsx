@@ -13,7 +13,7 @@ export function AppProvider({ children }) {
   const [clientes, setClientes] = useState([]);
   const [ordenes, setOrdenes] = useState([]);
   const [facturas, setFacturas] = useState([]);
-  const [compras, setCompras] = useState([]); // <--- NUEVO: Estado para Compras
+  const [compras, setCompras] = useState([]);
   const [usuarioSesion, setUsuarioSesion] = useState(() => {
     const saved = localStorage.getItem('techfix_sesion');
     return saved ? JSON.parse(saved) : null;
@@ -51,7 +51,6 @@ export function AppProvider({ children }) {
       const resFac = await supabase.from('facturas').select('*').order('id', { ascending: false });
       if (resFac.data) setFacturas(resFac.data);
 
-      // <--- NUEVO: Cargar compras desde Supabase
       const resComp = await supabase.from('compras').select('*').order('id', { ascending: false });
       if (resComp.data) setCompras(resComp.data);
 
@@ -158,7 +157,6 @@ export function AppProvider({ children }) {
     }
   };
 
-  // <--- NUEVO: Registrar Compra en Supabase
   const agregarCompra = async (compraData, nombreUsuario) => {
     const nuevaComp = {
       proveedor: compraData.proveedor,
@@ -186,7 +184,6 @@ export function AppProvider({ children }) {
     const numRemisionGenerado = idConsecutivoStr;
     const valorCobro = orden.total_pagar > 0 ? orden.total_pagar : (orden.valor_estimado || 0);
 
-    // Armar items incluyendo la compra si se seleccionó
     let itemsRemision = [
       { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${orden.fallo_reportado} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: valorCobro }
     ];
@@ -209,7 +206,7 @@ export function AppProvider({ children }) {
       cliente_telefono: telCliente,
       fecha: new Date().toISOString().split('T')[0],
       total: totalFinalFac,
-      costo_compra: costoTotalCompraAsociada, // <--- Control de costo real para ganancia
+      costo_compra: costoTotalCompraAsociada,
       tipo: 'Servicio Técnico',
       usuario_creador: nombreUsuario || 'Sistema',
       items: itemsRemision
@@ -238,7 +235,7 @@ export function AppProvider({ children }) {
       cliente_telefono: telefonoCliente,
       fecha: new Date().toISOString().split('T')[0],
       total: totalCalculado,
-      costo_compra: costoCompraTotal || 0, // <--- Control de costo real para ganancia
+      costo_compra: costoCompraTotal || 0,
       tipo: 'Venta de Repuestos',
       usuario_creador: nombreUsuario || 'Sistema',
       items: itemsArray
@@ -256,6 +253,17 @@ export function AppProvider({ children }) {
   const agregarRol = async (nombreRol, permisosObj) => {
     const { data: insertado, error } = await supabase.from('roles').insert([{ nombre: nombreRol, permisos: permisosObj }]).select();
     if (!error && insertado) setRoles(prev => [...prev, insertado[0]]);
+  };
+
+  // Función para actualizar permisos de un rol existente
+  const actualizarRol = async (idRol, permisosObj) => {
+    const { error } = await supabase.from('roles').update({ permisos: permisosObj }).eq('id', idRol);
+    if (!error) {
+      setRoles(prev => prev.map(r => r.id === idRol ? { ...r, permisos: permisosObj } : r));
+      alert('Permisos de rol actualizados con éxito.');
+    } else {
+      alert('Error al actualizar rol en Supabase.');
+    }
   };
 
   const agregarUsuario = async (data) => {
@@ -278,12 +286,12 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider value={{
-      empresa, setEmpresa: actualizarEmpresa, roles, agregarRol, usuarios, agregarUsuario,
+      empresa, setEmpresa: actualizarEmpresa, roles, agregarRol, actualizarRol, usuarios, agregarUsuario,
       usuarioSesion, login, logout, rolActual,
       clientes, agregarCliente, modificarCliente,
       ordenes, agregarOrden, actualizarOrden,
       facturas, remisionarOrden, agregarVentaDirecta,
-      compras, agregarCompra // <--- NUEVO
+      compras, agregarCompra
     }}>
       {children}
     </AppContext.Provider>
@@ -292,9 +300,6 @@ export function AppProvider({ children }) {
 
 const useApp = () => useContext(AppContext);
 
-// ==========================================
-// PANTALLA DE INICIO DE SESIÓN
-// ==========================================
 function LoginScreen() {
   const { login, empresa } = useApp();
   const [usr, setUsr] = useState('');
@@ -337,12 +342,9 @@ function LoginScreen() {
   );
 }
 
-// ==========================================
-// APLICACIÓN PRINCIPAL
-// ==========================================
 function MainApp() {
   const {
-    empresa, clientes, ordenes, facturas, compras, agregarCompra, roles, agregarRol, usuarios, agregarUsuario,
+    empresa, clientes, ordenes, facturas, compras, agregarCompra, roles, agregarRol, actualizarRol, usuarios, agregarUsuario,
     usuarioSesion, logout, rolActual,
     agregarCliente, modificarCliente, agregarOrden, actualizarOrden,
     remisionarOrden, agregarVentaDirecta, setEmpresa
@@ -353,13 +355,12 @@ function MainApp() {
   const [modalEditCliente, setModalEditCliente] = useState(null);
   const [verHistorialCliente, setVerHistorialCliente] = useState(null);
   const [modalVenta, setModalVenta] = useState(false);
-  const [modalCompra, setModalCompra] = useState(false); // <--- NUEVO: Modal de Compra
-  const [modalRemisionarOrden, setModalRemisionarOrden] = useState(null); // <--- NUEVO: Modal con selector de compra para remisionar orden
+  const [modalCompra, setModalCompra] = useState(false);
+  const [modalRemisionarOrden, setModalRemisionarOrden] = useState(null);
   const [modalReporteExcel, setModalReporteExcel] = useState(false);
   const [facturaSeleccionada, setFacturaSeleccionada] = useState(null);
   const [documentoImprimir, setDocumentoImprimir] = useState(null);
   
-  // Estados para reporte Excel
   const [reporteFiltro, setReporteFiltro] = useState({
     fechaInicio: new Date().toISOString().split('T')[0],
     fechaFin: new Date().toISOString().split('T')[0],
@@ -378,11 +379,9 @@ function MainApp() {
   const [clienteVentaSeleccionado, setClienteVentaSeleccionado] = useState(null);
   const [formNuevoClienteVenta, setFormNuevoClienteVenta] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   const [itemsVenta, setItemsVenta] = useState([{ descripcion: '', cantidad: 1, precio: 0 }]);
-  const [compraSeleccionadaVentaId, setCompraSeleccionadaVentaId] = useState(''); // <--- NUEVO: Selector compra en venta directa
+  const [compraSeleccionadaVentaId, setCompraSeleccionadaVentaId] = useState('');
 
-  // <--- NUEVO: Formulario para registrar compra
   const [formCompra, setFormCompra] = useState({ proveedor: '', descripcion_producto: '', costo: 0, precio_venta_sugerido: 0 });
-
   const [mostrarHistorialPortal, setMostrarHistorialPortal] = useState(false);
 
   const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } });
@@ -406,7 +405,6 @@ function MainApp() {
     a.click();
   };
 
-  // Reporte actualizado con Costo vs Venta (Ganancia real)
   const generarReporteExcel = () => {
     const { fechaInicio, fechaFin, tipo } = reporteFiltro;
 
@@ -493,7 +491,7 @@ function MainApp() {
             <button onClick={() => setTab('ordenes')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'ordenes' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🛠️ Reparaciones y Estado</button>
             {permisos.ver_clientes && <button onClick={() => setTab('clientes')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'clientes' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>👥 Directorio de Clientes</button>}
             {permisos.facturar && <button onClick={() => setTab('facturacion')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'facturacion' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🧾 Remisiones y Ventas</button>}
-            {permisos.facturar && <button onClick={() => setTab('compras')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'compras' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🛒 Compras y Gastos</button>} {/* <--- NUEVO: Opción Compras */}
+            {permisos.facturar && <button onClick={() => setTab('compras')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'compras' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🛒 Compras y Gastos</button>}
             <button onClick={() => setTab('portal')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'portal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🔍 Portal Consulta Cliente</button>
             {permisos.ver_configuracion && <button onClick={() => setTab('config')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'config' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>⚙️ Configuración & Permisos</button>}
           </nav>
@@ -702,7 +700,7 @@ function MainApp() {
           </div>
         )}
 
-        {/* 5. NUEVO: COMPRAS Y GASTOS */}
+        {/* 5. COMPRAS Y GASTOS */}
         {tab === 'compras' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
             <div className="flex justify-between items-center">
@@ -782,7 +780,6 @@ function MainApp() {
                   <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Total a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(clienteSeleccionado.total_pagar).toLocaleString('es-CO')}</span></p>
                 )}
 
-                {/* HISTORIAL DESPLEGABLE */}
                 <div className="pt-2 border-t border-slate-700">
                   <button 
                     onClick={() => setMostrarHistorialPortal(!mostrarHistorialPortal)} 
@@ -808,7 +805,6 @@ function MainApp() {
             )}
             {clienteSeleccionado === 'NO_ENCONTRADO' && <p className="text-xs text-amber-400">No se encontró ninguna orden con ese código.</p>}
 
-            {/* DATOS DE LA EMPRESA EN EL PORTAL */}
             <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
               <p className="font-bold text-slate-300">{empresa.nombre}</p>
               {empresa.direccion && <p>📍 Dirección: {empresa.direccion}</p>}
@@ -818,7 +814,7 @@ function MainApp() {
           </div>
         )}
 
-        {/* 7. CONFIGURACIÓN */}
+        {/* 7. CONFIGURACIÓN & PERMISOS (CORREGIDO PARA VER Y EDITAR PERFILES EXISTENTES) */}
         {tab === 'config' && permisos.ver_configuracion && (
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
@@ -839,20 +835,99 @@ function MainApp() {
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-              <h2 className="text-xl font-bold text-white border-b border-slate-800 pb-2">Crear Usuarios Reales</h2>
-              <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800 space-y-3 text-xs">
-                <p className="font-bold text-indigo-400 uppercase">Crear Perfil (Rol)</p>
-                <input placeholder="Nombre de Perfil (ej. Técnico, Ventas)" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formNuevoRol.nombre} onChange={e => setFormNuevoRol({ ...formNuevoRol, nombre: e.target.value })} />
+              <h2 className="text-xl font-bold text-white border-b border-slate-800 pb-2">Gestión de Perfiles (Roles) y Permisos</h2>
+              
+              {/* LISTADO Y EDICIÓN DE ROLES EXISTENTES */}
+              <div className="space-y-4">
+                <p className="text-xs font-bold text-indigo-400 uppercase">Perfiles Existentes en el Sistema</p>
+                <div className="space-y-3">
+                  {roles.map(r => {
+                    const currentPerms = typeof r.permisos === 'string' ? JSON.parse(r.permisos) : (r.permisos || {});
+                    return (
+                      <div key={r.id} className="bg-slate-800/60 p-4 rounded-xl border border-slate-700 space-y-3 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-extrabold text-white text-sm">🛡️ {r.nombre}</span>
+                          <button 
+                            onClick={async () => {
+                              await actualizarRol(r.id, currentPerms);
+                            }}
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl font-bold transition"
+                          >
+                            Guardar Cambios de este Rol
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-slate-300 pt-1">
+                          <label className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              checked={!!currentPerms.crear_orden} 
+                              onChange={e => {
+                                const updated = { ...currentPerms, crear_orden: e.target.checked };
+                                setRoles(roles.map(rol => rol.id === r.id ? { ...rol, permisos: updated } : rol));
+                              }} 
+                            /> Crear Órdenes
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              checked={!!currentPerms.editar_diagnostico} 
+                              onChange={e => {
+                                const updated = { ...currentPerms, editar_diagnostico: e.target.checked };
+                                setRoles(roles.map(rol => rol.id === r.id ? { ...rol, permisos: updated } : rol));
+                              }} 
+                            /> Modificar Diagnóstico
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              checked={!!currentPerms.ver_clientes} 
+                              onChange={e => {
+                                const updated = { ...currentPerms, ver_clientes: e.target.checked };
+                                setRoles(roles.map(rol => rol.id === r.id ? { ...rol, permisos: updated } : rol));
+                              }} 
+                            /> Ver Clientes
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              checked={!!currentPerms.facturar} 
+                              onChange={e => {
+                                const updated = { ...currentPerms, facturar: e.target.checked };
+                                setRoles(roles.map(rol => rol.id === r.id ? { ...rol, permisos: updated } : rol));
+                              }} 
+                            /> Remisiones, Ventas y Compras
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input 
+                              type="checkbox" 
+                              checked={!!currentPerms.ver_configuracion} 
+                              onChange={e => {
+                                const updated = { ...currentPerms, ver_configuracion: e.target.checked };
+                                setRoles(roles.map(rol => rol.id === r.id ? { ...rol, permisos: updated } : rol));
+                              }} 
+                            /> Configuración
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* CREAR NUEVO ROL */}
+              <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800 space-y-3 text-xs pt-4 border-t border-slate-700">
+                <p className="font-bold text-indigo-400 uppercase">+ Crear Nuevo Perfil (Rol)</p>
+                <input placeholder="Nombre de Perfil (ej. Técnico Junior, Cajero)" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formNuevoRol.nombre} onChange={e => setFormNuevoRol({ ...formNuevoRol, nombre: e.target.value })} />
                 <div className="grid grid-cols-2 gap-2 text-slate-300">
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.crear_orden} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, crear_orden: e.target.checked } })} /> Crear Órdenes</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.editar_diagnostico} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, editar_diagnostico: e.target.checked } })} /> Modificar Diagnóstico</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.ver_clientes} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, ver_clientes: e.target.checked } })} /> Ver Clientes</label>
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.facturar} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, facturar: e.target.checked } })} /> Remisiones y Ventas</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.facturar} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, facturar: e.target.checked } })} /> Remisiones, Ventas y Compras</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.ver_configuracion} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, ver_configuracion: e.target.checked } })} /> Configuración</label>
                 </div>
-                <button onClick={async () => { if (!formNuevoRol.nombre) return; await agregarRol(formNuevoRol.nombre, formNuevoRol.permisos); alert('Rol creado'); setFormNuevoRol({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } }); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Rol</button>
+                <button onClick={async () => { if (!formNuevoRol.nombre) return alert('Ingresa un nombre para el rol.'); await agregarRol(formNuevoRol.nombre, formNuevoRol.permisos); alert('Rol creado con éxito'); setFormNuevoRol({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } }); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Nuevo Rol</button>
 
-                <p className="font-bold text-indigo-400 uppercase mt-4">Crear Usuario</p>
+                <p className="font-bold text-indigo-400 uppercase pt-4 border-t border-slate-700">Crear Usuario y Asignar Rol</p>
                 <div className="grid grid-cols-2 gap-2"><input placeholder="Nombre Completo" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.nombre} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, nombre: e.target.value })} /><input placeholder="Usuario" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.usuario} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, usuario: e.target.value })} /></div>
                 <div className="grid grid-cols-2 gap-2"><input type="password" placeholder="Contraseña" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.clave} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, clave: e.target.value })} /><select className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.rolId} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, rolId: e.target.value })}><option value="">Selecciona Rol...</option>{roles.map(r => (<option key={r.id} value={r.id}>{r.nombre}</option>))}</select></div>
                 <button onClick={async () => { if (!formUsuarioNuevo.nombre || !formUsuarioNuevo.rolId) return alert('Falta el Rol o Nombre'); await agregarUsuario(formUsuarioNuevo); alert('Usuario creado en Supabase'); }} className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Usuario</button>
@@ -865,7 +940,6 @@ function MainApp() {
 
       {/* MODALES */}
       
-      {/* 1. Modal Editar Diagnóstico */}
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3">
@@ -925,7 +999,6 @@ function MainApp() {
         </div>
       )}
 
-      {/* 2. Modal Editar / Crear Cliente */}
       {modalEditCliente && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-3">
@@ -951,7 +1024,6 @@ function MainApp() {
         </div>
       )}
 
-      {/* 3. Modal Historial de Cliente */}
       {verHistorialCliente && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3">
@@ -978,7 +1050,6 @@ function MainApp() {
         </div>
       )}
 
-      {/* 4. Modal Venta Directa con Opción de Compras */}
       {modalVenta && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1030,7 +1101,6 @@ function MainApp() {
               )}
             </div>
 
-            {/* <--- NUEVO: Opción de seleccionar producto previamente comprado */}
             <div className="space-y-2 pt-2 bg-slate-800/50 p-3 rounded-xl border border-slate-800">
               <label className="text-xs font-bold text-amber-400 block">🛒 Seleccionar Producto Registrado en Compras (Opcional)</label>
               <select 
@@ -1042,7 +1112,6 @@ function MainApp() {
                   if(idSel) {
                     const compObj = compras.find(c => c.id.toString() === idSel);
                     if(compObj) {
-                      // Autocompletar el primer ítem con la compra seleccionada
                       const nuevosItems = [...itemsVenta];
                       nuevosItems[0].descripcion = `[Repuesto Comprado]: ${compObj.descripcion_producto}`;
                       nuevosItems[0].precio = compObj.precio_venta_sugerido || 0;
@@ -1089,7 +1158,6 @@ function MainApp() {
                 const total = itemsVenta.reduce((acc, i) => acc + (i.cantidad * i.precio), 0);
                 if (total <= 0) return alert('Ingresa ítems con precio mayor a 0');
 
-                // Calcular costo total de compra asociada si se eligió
                 let costoCompraTotal = 0;
                 if (compraSeleccionadaVentaId) {
                   const compAsociada = compras.find(c => c.id.toString() === compraSeleccionadaVentaId);
@@ -1107,271 +1175,262 @@ function MainApp() {
             </div>
           </div>
         </div>
+      )}
 
-        {/* 5.1 NUEVO: Modal Remisionar Orden de Servicio con opción de Compra */}
-        {modalRemisionarOrden && (
-          <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
-            <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
-              <h3 className="font-bold text-white text-base">Remisionar Orden #{modalRemisionarOrden.idConsecutivo}</h3>
-              <p className="text-xs text-slate-400">Cliente: <strong className="text-white">{modalRemisionarOrden.orden.cliente_nombre}</strong></p>
-              
-              <div className="space-y-2 pt-2">
-                <label className="text-xs font-bold text-amber-400 block">🛒 ¿Incluir algún repuesto/producto de Compras?</label>
-                <select 
-                  className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white"
-                  value={modalRemisionarOrden.compraId}
-                  onChange={e => setModalRemisionarOrden({ ...modalRemisionarOrden, compraId: e.target.value })}
-                >
-                  <option value="">-- No incluir producto de compras --</option>
-                  {compras.map(c => (
-                    <option key={c.id} value={c.id}>{c.descripcion_producto} (Venta sugerida: ${c.precio_venta_sugerido})</option>
-                  ))}
+      {modalRemisionarOrden && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
+            <h3 className="font-bold text-white text-base">Remisionar Orden #{modalRemisionarOrden.idConsecutivo}</h3>
+            <p className="text-xs text-slate-400">Cliente: <strong className="text-white">{modalRemisionarOrden.orden.cliente_nombre}</strong></p>
+            
+            <div className="space-y-2 pt-2">
+              <label className="text-xs font-bold text-amber-400 block">🛒 ¿Incluir algún repuesto/producto de Compras?</label>
+              <select 
+                className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white"
+                value={modalRemisionarOrden.compraId}
+                onChange={e => setModalRemisionarOrden({ ...modalRemisionarOrden, compraId: e.target.value })}
+              >
+                <option value="">-- No incluir producto de compras --</option>
+                {compras.map(c => (
+                  <option key={c.id} value={c.id}>{c.descripcion_producto} (Venta sugerida: ${c.precio_venta_sugerido})</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-slate-500">Nota: El producto seleccionado se sumará al total de la remisión del cliente y su costo se restará en informes internos para calcular tu ganancia real.</p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3">
+              <button onClick={() => setModalRemisionarOrden(null)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
+              <button onClick={async () => {
+                const nombreUsrActual = usuarioSesion ? usuarioSesion.nombre : 'Admin';
+                let itemCompraObj = null;
+                if (modalRemisionarOrden.compraId) {
+                  itemCompraObj = compras.find(c => c.id.toString() === modalRemisionarOrden.compraId.toString());
+                }
+
+                const fac = await remisionarOrden(modalRemisionarOrden.orden, modalRemisionarOrden.idConsecutivo, nombreUsrActual, itemCompraObj);
+                setModalRemisionarOrden(null);
+                if(fac){
+                  alert('¡Remisión Generada Correctamente!');
+                  setDocumentoImprimir({ tipo: 'FACTURA', data: fac, idConsecutivo: modalRemisionarOrden.idConsecutivo });
+                }
+              }} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Confirmar y Generar Remisión</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalCompra && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
+            <h3 className="font-bold text-white text-base">Registrar Nueva Compra / Gasto</h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">Proveedor / Tienda</label>
+                <input placeholder="Ej. DistriPartes S.A.S" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formCompra.proveedor} onChange={e => setFormCompra({...formCompra, proveedor: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Descripción del Producto / Repuesto</label>
+                <input placeholder="Ej. Pantalla Portátil Lenovo 15.6" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formCompra.descripcion_producto} onChange={e => setFormCompra({...formCompra, descripcion_producto: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-slate-400 block mb-1">Costo Invertido ($)</label>
+                  <input type="number" placeholder="0" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white font-bold text-rose-400" value={formCompra.costo} onChange={e => setFormCompra({...formCompra, costo: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-slate-400 block mb-1">Precio Venta Sugerido ($)</label>
+                  <input type="number" placeholder="0" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white font-bold text-emerald-400" value={formCompra.precio_venta_sugerido} onChange={e => setFormCompra({...formCompra, precio_venta_sugerido: e.target.value})} />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3">
+              <button onClick={() => setModalCompra(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
+              <button onClick={async () => {
+                if(!formCompra.proveedor || !formCompra.descripcion_producto || Number(formCompra.costo) <= 0) {
+                  return alert('Por favor completa el proveedor, producto y un costo válido.');
+                }
+                const nombreUsrActual = usuarioSesion ? usuarioSesion.nombre : 'Admin';
+                const res = await agregarCompra(formCompra, nombreUsrActual);
+                if(res) {
+                  alert('¡Compra registrada correctamente!');
+                  setModalCompra(false);
+                }
+              }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition">Guardar Compra</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalReporteExcel && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
+            <h3 className="font-bold text-white text-base">Descargar Reporte Financiero en Excel (CSV)</h3>
+            
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">Fecha de Inicio</label>
+                <input type="date" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.fechaInicio} onChange={e => setReporteFiltro({...reporteFiltro, fechaInicio: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Fecha Fin</label>
+                <input type="date" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.fechaFin} onChange={e => setReporteFiltro({...reporteFiltro, fechaFin: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Tipo de Registro</label>
+                <select className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.tipo} onChange={e => setReporteFiltro({...reporteFiltro, tipo: e.target.value})}>
+                  <option value="AMBOS">Ambos (Ventas y Reparaciones)</option>
+                  <option value="VENTAS">Solo Ventas de Repuestos</option>
+                  <option value="REPARACIONES">Solo Reparaciones (Servicio Técnico)</option>
                 </select>
-                <p className="text-[11px] text-slate-500">Nota: El producto seleccionado se sumará al total de la remisión del cliente y su costo se restará en informes internos para calcular tu ganancia real.</p>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3">
-                <button onClick={() => setModalRemisionarOrden(null)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
-                <button onClick={async () => {
-                  const nombreUsrActual = usuarioSesion ? usuarioSesion.nombre : 'Admin';
-                  let itemCompraObj = null;
-                  if (modalRemisionarOrden.compraId) {
-                    itemCompraObj = compras.find(c => c.id.toString() === modalRemisionarOrden.compraId.toString());
-                  }
-
-                  const fac = await remisionarOrden(modalRemisionarOrden.orden, modalRemisionarOrden.idConsecutivo, nombreUsrActual, itemCompraObj);
-                  setModalRemisionarOrden(null);
-                  if(fac){
-                    alert('¡Remisión Generada Correctamente!');
-                    setDocumentoImprimir({ tipo: 'FACTURA', data: fac, idConsecutivo: modalRemisionarOrden.idConsecutivo });
-                  }
-                }} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Confirmar y Generar Remisión</button>
               </div>
             </div>
-          </div>
-        )}
 
-        {/* 5.2 NUEVO: Modal Registrar Compra */}
-        {modalCompra && (
-          <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
-            <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
-              <h3 className="font-bold text-white text-base">Registrar Nueva Compra / Gasto</h3>
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="text-slate-400 block mb-1">Proveedor / Tienda</label>
-                  <input placeholder="Ej. DistriPartes S.A.S" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formCompra.proveedor} onChange={e => setFormCompra({...formCompra, proveedor: e.target.value})} />
-                </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">Descripción del Producto / Repuesto</label>
-                  <input placeholder="Ej. Pantalla Portátil Lenovo 15.6" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formCompra.descripcion_producto} onChange={e => setFormCompra({...formCompra, descripcion_producto: e.target.value})} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-slate-400 block mb-1">Costo Invertido ($)</label>
-                    <input type="number" placeholder="0" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white font-bold text-rose-400" value={formCompra.costo} onChange={e => setFormCompra({...formCompra, costo: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">Precio Venta Sugerido ($)</label>
-                    <input type="number" placeholder="0" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white font-bold text-emerald-400" value={formCompra.precio_venta_sugerido} onChange={e => setFormCompra({...formCompra, precio_venta_sugerido: e.target.value})} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3">
-                <button onClick={() => setModalCompra(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
-                <button onClick={async () => {
-                  if(!formCompra.proveedor || !formCompra.descripcion_producto || Number(formCompra.costo) <= 0) {
-                    return alert('Por favor completa el proveedor, producto y un costo válido.');
-                  }
-                  const nombreUsrActual = usuarioSesion ? usuarioSesion.nombre : 'Admin';
-                  const res = await agregarCompra(formCompra, nombreUsrActual);
-                  if(res) {
-                    alert('¡Compra registrada correctamente!');
-                    setModalCompra(false);
-                  }
-                }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition">Guardar Compra</button>
-              </div>
+            <div className="flex justify-end gap-2 pt-3">
+              <button onClick={() => setModalReporteExcel(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
+              <button onClick={generarReporteExcel} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition">Descargar Excel</button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Modal para configurar y descargar reporte Excel */}
-        {modalReporteExcel && (
-          <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
-            <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
-              <h3 className="font-bold text-white text-base">Descargar Reporte Financiero en Excel (CSV)</h3>
+      {facturaSeleccionada && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+              <h3 className="font-bold text-white text-base">Detalle de {facturaSeleccionada.numero_factura}</h3>
+              <span className="text-xs font-bold text-indigo-400">Fecha: {facturaSeleccionada.fecha}</span>
+            </div>
+            <p className="text-xs text-slate-300"><strong>Cliente:</strong> {facturaSeleccionada.cliente_nombre}</p>
+            <p className="text-xs text-slate-300"><strong>Teléfono:</strong> {facturaSeleccionada.cliente_telefono || 'N/A'}</p>
+            <p className="text-xs text-slate-300"><strong>Vendedor:</strong> <span className="text-indigo-300 font-semibold">{facturaSeleccionada.usuario_creador || 'Sistema'}</span></p>
+            <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
+
+            <div className="border border-slate-800 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-800 text-slate-400">
+                  <tr><th className="p-2">Ítem / Descripción</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {(facturaSeleccionada.items || []).map((it, idx) => (
+                    <tr key={idx}>
+                      <td className="p-2 text-[11px]">{it.descripcion}</td>
+                      <td className="p-2 text-center text-[11px]">{it.cantidad}</td>
+                      <td className="p-2 text-right text-[11px]">$ {(it.precio || 0).toLocaleString('es-CO')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+              <span className="font-bold text-xs text-white">Total Venta Cliente:</span>
+              <span className="font-extrabold text-emerald-400 text-base">$ {(facturaSeleccionada.total || 0).toLocaleString('es-CO')}</span>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setFacturaSeleccionada(null)} className="bg-slate-800 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {documentoImprimir && (
+        <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
+          <div className="bg-white text-slate-900 w-full max-w-xl p-5 rounded-2xl space-y-2 shadow-2xl h-[50vh] max-h-[50vh] overflow-y-auto flex flex-col justify-between border-b-2 border-dashed border-slate-400">
+            <div id="seccion-impresion" className="space-y-2 text-[17px]">
               
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="text-slate-400 block mb-1">Fecha de Inicio</label>
-                  <input type="date" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.fechaInicio} onChange={e => setReporteFiltro({...reporteFiltro, fechaInicio: e.target.value})} />
+              <div className="flex items-center justify-between border-b pb-1 gap-2">
+                <div className="flex items-center gap-2">
+                  {empresa.logoUrl && (
+                    <img src={empresa.logoUrl} alt="Logo" className="w-14 h-14 object-contain rounded-lg border p-0.5 bg-white shrink-0" />
+                  )}
+                  <div>
+                    <h1 className="font-black text-2xl leading-tight">{empresa.nombre}</h1>
+                    <p className="text-sm text-slate-600">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">Fecha Fin</label>
-                  <input type="date" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.fechaFin} onChange={e => setReporteFiltro({...reporteFiltro, fechaFin: e.target.value})} />
-                </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">Tipo de Registro</label>
-                  <select className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={reporteFiltro.tipo} onChange={e => setReporteFiltro({...reporteFiltro, tipo: e.target.value})}>
-                    <option value="AMBOS">Ambos (Ventas y Reparaciones)</option>
-                    <option value="VENTAS">Solo Ventas de Repuestos</option>
-                    <option value="REPARACIONES">Solo Reparaciones (Servicio Técnico)</option>
-                  </select>
-                </div>
+                <h2 className="font-extrabold text-indigo-700 uppercase text-right text-xl shrink-0">
+                  {documentoImprimir.tipo === 'FACTURA' ? 'REMISIÓN' : 'ORDEN DE ENTRADA'}
+                </h2>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3">
-                <button onClick={() => setModalReporteExcel(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
-                <button onClick={generarReporteExcel} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition">Descargar Excel</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 5. Modal Ver Detalle de Remisión */}
-        {facturaSeleccionada && (
-          <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
-            <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4">
-              <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                <h3 className="font-bold text-white text-base">Detalle de {facturaSeleccionada.numero_factura}</h3>
-                <span className="text-xs font-bold text-indigo-400">Fecha: {facturaSeleccionada.fecha}</span>
-              </div>
-              <p className="text-xs text-slate-300"><strong>Cliente:</strong> {facturaSeleccionada.cliente_nombre}</p>
-              <p className="text-xs text-slate-300"><strong>Teléfono:</strong> {facturaSeleccionada.cliente_telefono || 'N/A'}</p>
-              <p className="text-xs text-slate-300"><strong>Vendedor:</strong> <span className="text-indigo-300 font-semibold">{facturaSeleccionada.usuario_creador || 'Sistema'}</span></p>
-              <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
-
-              <div className="border border-slate-800 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-800 text-slate-400">
-                    <tr><th className="p-2">Ítem / Descripción</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {(facturaSeleccionada.items || []).map((it, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2 text-[11px]">{it.descripcion}</td>
-                        <td className="p-2 text-center text-[11px]">{it.cantidad}</td>
-                        <td className="p-2 text-right text-[11px]">$ {(it.precio || 0).toLocaleString('es-CO')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                <span className="font-bold text-xs text-white">Total Venta Cliente:</span>
-                <span className="font-extrabold text-emerald-400 text-base">$ {(facturaSeleccionada.total || 0).toLocaleString('es-CO')}</span>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setFacturaSeleccionada(null)} className="bg-slate-800 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Cerrar</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 6. Documento Impreso PDF (TEXTOS 25% MÁS GRANDES Y ADAPTADO A MITAD DE HOJA CARTA) */}
-        {documentoImprimir && (
-          <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
-            <div className="bg-white text-slate-900 w-full max-w-xl p-5 rounded-2xl space-y-2 shadow-2xl h-[50vh] max-h-[50vh] overflow-y-auto flex flex-col justify-between border-b-2 border-dashed border-slate-400">
-              <div id="seccion-impresion" className="space-y-2 text-[17px]">
-                
-                <div className="flex items-center justify-between border-b pb-1 gap-2">
-                  <div className="flex items-center gap-2">
-                    {empresa.logoUrl && (
-                      <img src={empresa.logoUrl} alt="Logo" className="w-14 h-14 object-contain rounded-lg border p-0.5 bg-white shrink-0" />
+              {documentoImprimir.tipo === 'ORDEN' && (
+                <div className="space-y-1.5 text-base">
+                  {documentoImprimir.idConsecutivo && (
+                    <p className="text-lg"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
+                  )}
+                  <div className="grid grid-cols-2 gap-1">
+                    <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+                    <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <p><strong>Código Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
+                    <p><strong>Atendió:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
+                  </div>
+                  <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
+                  <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
+                  <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
+                  
+                  <div className="flex gap-4">
+                    {Number(documentoImprimir.data.valor_estimado) > 0 && (
+                      <p><strong>Presupuesto Est.:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
                     )}
-                    <div>
-                      <h1 className="font-black text-2xl leading-tight">{empresa.nombre}</h1>
-                      <p className="text-sm text-slate-600">Tel: {empresa.telefono || 'N/A'} | Email: {empresa.email || 'N/A'}</p>
-                    </div>
-                  </div>
-                  <h2 className="font-extrabold text-indigo-700 uppercase text-right text-xl shrink-0">
-                    {documentoImprimir.tipo === 'FACTURA' ? 'REMISIÓN' : 'ORDEN DE ENTRADA'}
-                  </h2>
-                </div>
-
-                {documentoImprimir.tipo === 'ORDEN' && (
-                  <div className="space-y-1.5 text-base">
-                    {documentoImprimir.idConsecutivo && (
-                      <p className="text-lg"><strong>N° Registro:</strong> <span className="font-black text-indigo-700">{documentoImprimir.idConsecutivo}</span></p>
+                    {Number(documentoImprimir.data.total_pagar) > 0 && (
+                      <p className="font-bold text-emerald-700 text-lg"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
                     )}
-                    <div className="grid grid-cols-2 gap-1">
-                      <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
-                      <p><strong>Teléfono:</strong> {documentoImprimir.data.cliente_telefono || 'N/A'}</p>
+                  </div>
+                </div>
+              )}
+
+              {documentoImprimir.tipo === 'FACTURA' && (
+                <div className="space-y-1.5 text-base">
+                  <div className="flex justify-between text-lg">
+                    <p><strong>Remisión N°:</strong> <span className="font-black text-indigo-700">{documentoImprimir.data.numero_factura}</span></p>
+                    <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
+                    <p><strong>Vendedor:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
+                  </div>
+
+                  <table className="w-full text-left border border-slate-300 mt-1 text-base">
+                    <thead className="bg-slate-100">
+                      <tr><th className="p-1.5 border">Descripción</th><th className="p-1.5 text-center border">Cant.</th><th className="p-1.5 text-right border">Precio</th></tr>
+                    </thead>
+                    <tbody>
+                      {(documentoImprimir.data.items || []).map((it, idx) => (
+                        <tr key={idx}><td className="p-1.5 border">{it.descripcion}</td><td className="p-1.5 text-center border">{it.cantidad}</td><td className="p-1.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="font-black text-emerald-700 text-xl text-right mt-1">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
+
+                  <div className="mt-1.5 pt-1.5 border-t border-dashed border-slate-300 grid grid-cols-2 gap-3 text-sm">
+                    <div className="border border-slate-300 p-2 rounded h-14 flex flex-col justify-between">
+                      <span className="font-bold text-slate-600 uppercase text-xs">Garantía:</span>
+                      <div className="border-b border-dotted border-slate-400 w-full mb-1"></div>
+                      <div className="border-b border-dotted border-slate-400 w-full"></div>
                     </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <p><strong>Código Seguimiento:</strong> {documentoImprimir.data.codigo_seguimiento}</p>
-                      <p><strong>Atendió:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
-                    </div>
-                    <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
-                    <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
-                    <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
-                    
-                    <div className="flex gap-4">
-                      {Number(documentoImprimir.data.valor_estimado) > 0 && (
-                        <p><strong>Presupuesto Est.:</strong> $ {Number(documentoImprimir.data.valor_estimado).toLocaleString('es-CO')}</p>
-                      )}
-                      {Number(documentoImprimir.data.total_pagar) > 0 && (
-                        <p className="font-bold text-emerald-700 text-lg"><strong>Total a Pagar:</strong> $ {Number(documentoImprimir.data.total_pagar).toLocaleString('es-CO')}</p>
-                      )}
+                    <div className="border border-slate-300 p-2 rounded h-14 flex flex-col items-center justify-end text-center">
+                      <span className="text-xs text-slate-400 font-bold uppercase">Sello / Firma</span>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
+            </div>
 
-                {documentoImprimir.tipo === 'FACTURA' && (
-                  <div className="space-y-1.5 text-base">
-                    <div className="flex justify-between text-lg">
-                      <p><strong>Remisión N°:</strong> <span className="font-black text-indigo-700">{documentoImprimir.data.numero_factura}</span></p>
-                      <p><strong>Fecha:</strong> {documentoImprimir.data.fecha}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <p><strong>Cliente:</strong> {documentoImprimir.data.cliente_nombre}</p>
-                      <p><strong>Vendedor:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
-                    </div>
-
-                    <table className="w-full text-left border border-slate-300 mt-1 text-base">
-                      <thead className="bg-slate-100">
-                        <tr><th className="p-1.5 border">Descripción</th><th className="p-1.5 text-center border">Cant.</th><th className="p-1.5 text-right border">Precio</th></tr>
-                      </thead>
-                      <tbody>
-                        {(documentoImprimir.data.items || []).map((it, idx) => (
-                          <tr key={idx}><td className="p-1.5 border">{it.descripcion}</td><td className="p-1.5 text-center border">{it.cantidad}</td><td className="p-1.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <p className="font-black text-emerald-700 text-xl text-right mt-1">Total a Pagar: $ {(documentoImprimir.data.total || 0).toLocaleString('es-CO')}</p>
-
-                    {/* ESPACIO GARANTÍA Y SELLO REAJUSTADO 25% MÁS GRANDE */}
-                    <div className="mt-1.5 pt-1.5 border-t border-dashed border-slate-300 grid grid-cols-2 gap-3 text-sm">
-                      <div className="border border-slate-300 p-2 rounded h-14 flex flex-col justify-between">
-                        <span className="font-bold text-slate-600 uppercase text-xs">Garantía:</span>
-                        <div className="border-b border-dotted border-slate-400 w-full mb-1"></div>
-                        <div className="border-b border-dotted border-slate-400 w-full"></div>
-                      </div>
-                      <div className="border border-slate-300 p-2 rounded h-14 flex flex-col items-center justify-end text-center">
-                        <span className="text-xs text-slate-400 font-bold uppercase">Sello / Firma</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t no-imprimir">
-                <button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3 text-xs">Cerrar</button>
-                <button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-xs">Imprimir (Mitad Carta)</button>
-              </div>
+            <div className="flex justify-end gap-2 pt-2 border-t no-imprimir">
+              <button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3 text-xs">Cerrar</button>
+              <button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-xs">Imprimir (Mitad Carta)</button>
             </div>
           </div>
-        )}
-      </main>
+        </div>
+      )}
     </div>
   );
 }
 
-// ==========================================
-// PORTAL PÚBLICO (/portal)
-// ==========================================
 function PortalPublico() {
   const { empresa, ordenes } = useApp();
   const [codigoConsulta, setCodigoConsulta] = useState('');
@@ -1430,7 +1489,6 @@ function PortalPublico() {
               <p className="bg-emerald-950/40 border border-emerald-800/50 p-2.5 rounded-xl"><strong className="text-emerald-400">Total a Pagar:</strong> <span className="text-emerald-300 font-extrabold">$ {Number(ordenConsultaResult.total_pagar).toLocaleString('es-CO')}</span></p>
             )}
 
-            {/* HISTORIAL DESPLEGABLE EN PORTAL PÚBLICO */}
             <div className="pt-2 border-t border-slate-700">
               <button 
                 onClick={() => setMostrarHistorialPortal(!mostrarHistorialPortal)} 
@@ -1459,7 +1517,6 @@ function PortalPublico() {
           <p className="text-xs text-amber-400 py-2">No se encontró ninguna orden con ese código.</p>
         )}
 
-        {/* DATOS DE LA EMPRESA EN PORTAL PÚBLICO */}
         <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
           <p className="font-bold text-slate-300">{empresa.nombre}</p>
           {empresa.direccion && <p>📍 Dirección: {empresa.direccion}</p>}
