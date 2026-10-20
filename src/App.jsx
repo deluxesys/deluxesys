@@ -115,7 +115,6 @@ export function AppProvider({ children }) {
       serie: ordenData.serie || '',
       falla_reportada: ordenData.fallo_reportado,
       fallo_reportado: ordenData.fallo_reportado,
-      // Nuevos campos
       deja_cargador: ordenData.deja_cargador || false,
       deja_bateria: ordenData.deja_bateria || false,
       serie_bateria: ordenData.serie_bateria || '',
@@ -197,7 +196,6 @@ export function AppProvider({ children }) {
 
     let costoTotalCompraAsociada = 0;
 
-    // Si se pasa un ítem de compra en el modal o si la orden ya tenía uno guardado
     let compraElegida = itemCompraSeleccionado;
     if (!compraElegida && orden.repuesto_compra_id) {
       compraElegida = compras.find(c => c.id.toString() === orden.repuesto_compra_id.toString());
@@ -385,7 +383,6 @@ function MainApp() {
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   
-  // Estado formulario nueva orden actualizado con cargador, batería y compras
   const [formOrden, setFormOrden] = useState({ 
     tipo_equipo: 'PORTATIL', 
     marca_modelo: '', 
@@ -450,7 +447,7 @@ function MainApp() {
     }
 
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
-    csvContent += "Remision/Documento,Fecha,Tipo,Cliente,Telefono,Vendedor,Costo Invertido,Total Venta,Ganancia Real\n";
+    csvContent += "Remision/Documento,Fecha,Tipo,Cliente,Telefono,Vendedor,Costo Invertido,Total Venta,Utilidad Real\n";
 
     let sumaTotalVentas = 0;
     let sumaTotalCostos = 0;
@@ -592,7 +589,6 @@ function MainApp() {
                 <input placeholder="N° de Serie (S/N Equipo)" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formOrden.serie} onChange={e => setFormOrden({ ...formOrden, serie: e.target.value })} />
               </div>
 
-              {/* Casillas Cargador y Batería / S/N Batería */}
               <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/80 space-y-3">
                 <div className="flex gap-6 text-xs text-slate-200">
                   <label className="flex items-center gap-2 cursor-pointer font-bold">
@@ -626,7 +622,6 @@ function MainApp() {
                 )}
               </div>
 
-              {/* Selector de Compras en Nueva Orden */}
               <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700">
                 <label className="text-xs font-bold text-amber-400 block mb-1">🛒 Asociar Repuesto/Insumo de Compras (Opcional)</label>
                 <select 
@@ -750,7 +745,7 @@ function MainApp() {
           </div>
         )}
 
-        {/* 4. REMISIONES Y VENTAS */}
+        {/* 4. REMISIONES Y VENTAS (CON CAMPO UTILIDAD) */}
         {tab === 'facturacion' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
             <div className="flex justify-between items-center">
@@ -760,26 +755,44 @@ function MainApp() {
                 <button onClick={() => { setModalVenta(true); setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); setCompraSeleccionadaVentaId(''); }} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button>
               </div>
             </div>
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Remisión N°</th><th className="p-3">Fecha</th><th className="p-3">Cliente / Vendedor</th><th className="p-3">Total Venta</th><th className="p-3 text-right">Detalle</th></tr></thead>
-              <tbody className="divide-y divide-slate-800">
-                {facturas.map(f => (
-                  <tr key={f.id} className="hover:bg-slate-800/40">
-                    <td className="p-3 font-bold text-indigo-400">{f.numero_factura}</td>
-                    <td className="p-3 text-slate-400">{f.fecha}</td>
-                    <td className="p-3 font-medium text-white">
-                      {f.cliente_nombre}
-                      <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Vendedor: {f.usuario_creador || 'Sistema'}</span>
-                    </td>
-                    <td className="p-3 font-extrabold text-white">$ {(f.total || 0).toLocaleString('es-CO')}</td>
-                    <td className="p-3 text-right space-x-1">
-                      <button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button>
-                      <button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-800 text-slate-400 uppercase">
+                  <tr>
+                    <th className="p-3">Remisión N°</th>
+                    <th className="p-3">Fecha</th>
+                    <th className="p-3">Cliente / Vendedor</th>
+                    <th className="p-3">Total Venta</th>
+                    <th className="p-3">Utilidad</th>
+                    <th className="p-3 text-right">Detalle</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {facturas.map(f => {
+                    const totalVenta = Number(f.total || 0);
+                    const costoCompra = Number(f.costo_compra || 0);
+                    const utilidad = totalVenta - costoCompra;
+
+                    return (
+                      <tr key={f.id} className="hover:bg-slate-800/40">
+                        <td className="p-3 font-bold text-indigo-400">{f.numero_factura}</td>
+                        <td className="p-3 text-slate-400">{f.fecha}</td>
+                        <td className="p-3 font-medium text-white">
+                          {f.cliente_nombre}
+                          <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Vendedor: {f.usuario_creador || 'Sistema'}</span>
+                        </td>
+                        <td className="p-3 font-extrabold text-white">$ {totalVenta.toLocaleString('es-CO')}</td>
+                        <td className="p-3 font-extrabold text-emerald-400">$ {utilidad.toLocaleString('es-CO')}</td>
+                        <td className="p-3 text-right space-x-1">
+                          <button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button>
+                          <button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1022,7 +1035,6 @@ function MainApp() {
 
       {/* MODALES */}
       
-      {/* 1. Modal Editar Diagnóstico con Selector de Compras */}
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3 max-h-[90vh] overflow-y-auto">
@@ -1055,7 +1067,6 @@ function MainApp() {
               <textarea className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" rows={2} value={editOrdForm.diagnostico} onChange={e => setEditOrdForm({ ...editOrdForm, diagnostico: e.target.value })} placeholder="Diagnóstico técnico..." />
             </div>
 
-            {/* Selector de Compras en Modificación / Diagnóstico */}
             <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700">
               <label className="text-xs font-bold text-amber-400 block mb-1">🛒 Asociar o Cambiar Repuesto de Compras</label>
               <select 
@@ -1294,7 +1305,7 @@ function MainApp() {
                   <option key={c.id} value={c.id}>{c.descripcion_producto} (Venta sugerida: ${c.precio_venta_sugerido})</option>
                 ))}
               </select>
-              <p className="text-[11px] text-slate-500">Nota: El producto seleccionado se sumará al total de la remisión del cliente y su costo se restará en informes internos para calcular tu ganancia real.</p>
+              <p className="text-[11px] text-slate-500">Nota: El producto seleccionado se sumará al total de la remisión del cliente y su costo se restará en informes internos para calcular tu utilidad real.</p>
             </div>
 
             <div className="flex justify-end gap-2 pt-3">
