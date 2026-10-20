@@ -372,6 +372,18 @@ function MainApp() {
   const [facturaSeleccionada, setFacturaSeleccionada] = useState(null);
   const [documentoImprimir, setDocumentoImprimir] = useState(null);
   
+  // Estado para ocultar/mostrar la utilidad (Persistente en localStorage)
+  const [ocultarUtilidad, setOcultarUtilidad] = useState(() => {
+    const saved = localStorage.getItem('techfix_ocultar_utilidad');
+    return saved ? JSON.parse(saved) : false;
+  });
+
+  const toggleOcultarUtilidad = () => {
+    const nuevoEstado = !ocultarUtilidad;
+    setOcultarUtilidad(nuevoEstado);
+    localStorage.setItem('techfix_ocultar_utilidad', JSON.stringify(nuevoEstado));
+  };
+  
   const [reporteFiltro, setReporteFiltro] = useState({
     fechaInicio: new Date().toISOString().split('T')[0],
     fechaFin: new Date().toISOString().split('T')[0],
@@ -745,12 +757,24 @@ function MainApp() {
           </div>
         )}
 
-        {/* 4. REMISIONES Y VENTAS (CON CAMPO UTILIDAD) */}
+        {/* 4. REMISIONES Y VENTAS (CON BOTÓN DE OCULTAR UTILIDAD) */}
         {tab === 'facturacion' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center flex-wrap gap-3">
               <h2 className="text-xl font-bold text-white">Remisiones y Ventas</h2>
-              <div className="space-x-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Botón para alternar visibilidad de la utilidad */}
+                <button 
+                  onClick={toggleOcultarUtilidad} 
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border ${
+                    ocultarUtilidad 
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20' 
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                  title="Ocultar o mostrar las utilidades en pantalla"
+                >
+                  {ocultarUtilidad ? '🔒 Utilidad Oculta' : '👁️ Ocultar Utilidad'}
+                </button>
                 <button onClick={() => setModalReporteExcel(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition">📊 Descargar Reporte Excel</button>
                 <button onClick={() => { setModalVenta(true); setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); setCompraSeleccionadaVentaId(''); }} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button>
               </div>
@@ -763,7 +787,8 @@ function MainApp() {
                     <th className="p-3">Fecha</th>
                     <th className="p-3">Cliente / Vendedor</th>
                     <th className="p-3">Total Venta</th>
-                    <th className="p-3">Utilidad</th>
+                    {/* Se oculta dinámicamente el encabezado si ocultarUtilidad es true */}
+                    {!ocultarUtilidad && <th className="p-3">Utilidad</th>}
                     <th className="p-3 text-right">Detalle</th>
                   </tr>
                 </thead>
@@ -782,7 +807,12 @@ function MainApp() {
                           <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Vendedor: {f.usuario_creador || 'Sistema'}</span>
                         </td>
                         <td className="p-3 font-extrabold text-white">$ {totalVenta.toLocaleString('es-CO')}</td>
-                        <td className="p-3 font-extrabold text-emerald-400">$ {utilidad.toLocaleString('es-CO')}</td>
+                        
+                        {/* Se oculta dinámicamente la celda de utilidad si ocultarUtilidad es true */}
+                        {!ocultarUtilidad && (
+                          <td className="p-3 font-extrabold text-emerald-400">$ {utilidad.toLocaleString('es-CO')}</td>
+                        )}
+
                         <td className="p-3 text-right space-x-1">
                           <button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button>
                           <button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
