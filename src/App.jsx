@@ -113,7 +113,13 @@ export function AppProvider({ children }) {
       tipo_equipo: ordenData.tipo_equipo,
       marca_modelo: ordenData.marca_modelo,
       serie: ordenData.serie || '',
+      falla_reportada: ordenData.fallo_reportado,
       fallo_reportado: ordenData.fallo_reportado,
+      // Nuevos campos
+      deja_cargador: ordenData.deja_cargador || false,
+      deja_bateria: ordenData.deja_bateria || false,
+      serie_bateria: ordenData.serie_bateria || '',
+      repuesto_compra_id: ordenData.repuesto_compra_id ? Number(ordenData.repuesto_compra_id) : null,
       valor_estimado: Number(ordenData.valor_estimado) || 0,
       total_pagar: 0,
       usuario_creador: nombreUsuario || 'Sistema',
@@ -131,7 +137,7 @@ export function AppProvider({ children }) {
     return insertada[0];
   };
 
-  const actualizarOrden = async (id, estado, obs, diag, presupuesto, totalPagar, remisionAsociada = null) => {
+  const actualizarOrden = async (id, estado, obs, diag, presupuesto, totalPagar, repuestoCompraId = null, remisionAsociada = null) => {
     const ordenObj = ordenes.find(o => o.id === id);
     if (!ordenObj) return;
 
@@ -145,6 +151,7 @@ export function AppProvider({ children }) {
       diagnostico: diag !== undefined ? diag : ordenObj.diagnostico,
       valor_estimado: presupuesto !== undefined ? Number(presupuesto) : ordenObj.valor_estimado,
       total_pagar: totalPagar !== undefined ? Number(totalPagar) : (ordenObj.total_pagar || 0),
+      repuesto_compra_id: repuestoCompraId !== undefined ? (repuestoCompraId ? Number(repuestoCompraId) : null) : ordenObj.repuesto_compra_id,
       observaciones: obsArr,
       ...(remisionAsociada ? { numero_factura_asociada: remisionAsociada } : {})
     };
@@ -185,20 +192,27 @@ export function AppProvider({ children }) {
     const valorCobro = orden.total_pagar > 0 ? orden.total_pagar : (orden.valor_estimado || 0);
 
     let itemsRemision = [
-      { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${orden.fallo_reportado} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: valorCobro }
+      { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${orden.fallo_reportado || orden.falla_reportado} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: valorCobro }
     ];
 
     let costoTotalCompraAsociada = 0;
-    if (itemCompraSeleccionado) {
-      costoTotalCompraAsociada = Number(itemCompraSeleccionado.costo) || 0;
+
+    // Si se pasa un ítem de compra en el modal o si la orden ya tenía uno guardado
+    let compraElegida = itemCompraSeleccionado;
+    if (!compraElegida && orden.repuesto_compra_id) {
+      compraElegida = compras.find(c => c.id.toString() === orden.repuesto_compra_id.toString());
+    }
+
+    if (compraElegida) {
+      costoTotalCompraAsociada = Number(compraElegida.costo) || 0;
       itemsRemision.push({
-        descripcion: `[Repuesto/Insumo Adquirido en Compras]: ${itemCompraSeleccionado.descripcion_producto} (Proveedor: ${itemCompraSeleccionado.proveedor})`,
+        descripcion: `[Repuesto/Insumo de Compras]: ${compraElegida.descripcion_producto} (Proveedor: ${compraElegida.proveedor})`,
         cantidad: 1,
-        precio: Number(itemCompraSeleccionado.precio_venta_sugerido) || 0
+        precio: Number(compraElegida.precio_venta_sugerido) || 0
       });
     }
 
-    const totalFinalFac = valorCobro + (itemCompraSeleccionado ? (Number(itemCompraSeleccionado.precio_venta_sugerido) || 0) : 0);
+    const totalFinalFac = valorCobro + (compraElegida ? (Number(compraElegida.precio_venta_sugerido) || 0) : 0);
 
     const nuevaFac = {
       numero_factura: numRemisionGenerado,
@@ -215,7 +229,7 @@ export function AppProvider({ children }) {
     const { data: insertada, error } = await supabase.from('facturas').insert([nuevaFac]).select();
     if (!error && insertada) {
       setFacturas(prev => [insertada[0], ...prev]);
-      await actualizarOrden(orden.id, 'Entregado / Remisionado', 'Equipo entregado y remisionado bajo ' + numRemisionGenerado, orden.diagnostico, orden.valor_estimado, totalFinalFac, numRemisionGenerado);
+      await actualizarOrden(orden.id, 'Entregado / Remisionado', 'Equipo entregado y remisionado bajo ' + numRemisionGenerado, orden.diagnostico, orden.valor_estimado, totalFinalFac, orden.repuesto_compra_id, numRemisionGenerado);
       return insertada[0];
     } else {
       console.error(error);
@@ -255,7 +269,6 @@ export function AppProvider({ children }) {
     if (!error && insertado) setRoles(prev => [...prev, insertado[0]]);
   };
 
-  // Función para actualizar permisos de un rol existente
   const actualizarRol = async (idRol, permisosObj) => {
     const { error } = await supabase.from('roles').update({ permisos: permisosObj }).eq('id', idRol);
     if (!error) {
@@ -371,8 +384,21 @@ function MainApp() {
   const [busquedaCliente, setBusquedaCliente] = useState('');
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
-  const [formOrden, setFormOrden] = useState({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0 });
-  const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', presupuesto: 0, totalPagar: 0 });
+  
+  // Estado formulario nueva orden actualizado con cargador, batería y compras
+  const [formOrden, setFormOrden] = useState({ 
+    tipo_equipo: 'PORTATIL', 
+    marca_modelo: '', 
+    serie: '', 
+    fallo_reportado: '', 
+    valor_estimado: 0,
+    deja_cargador: false,
+    deja_bateria: false,
+    serie_bateria: '',
+    repuesto_compra_id: ''
+  });
+
+  const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', presupuesto: 0, totalPagar: 0, repuestoCompraId: '' });
   
   const [tipoClienteVentaOpt, setTipoClienteVentaOpt] = useState('EXISTENTE');
   const [busquedaClienteVenta, setBusquedaClienteVenta] = useState('');
@@ -563,8 +589,58 @@ function MainApp() {
               </select>
               <div className="grid grid-cols-2 gap-2">
                 <input placeholder="Marca y Modelo *" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formOrden.marca_modelo} onChange={e => setFormOrden({ ...formOrden, marca_modelo: e.target.value })} />
-                <input placeholder="N° de Serie (S/N)" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formOrden.serie} onChange={e => setFormOrden({ ...formOrden, serie: e.target.value })} />
+                <input placeholder="N° de Serie (S/N Equipo)" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formOrden.serie} onChange={e => setFormOrden({ ...formOrden, serie: e.target.value })} />
               </div>
+
+              {/* Casillas Cargador y Batería / S/N Batería */}
+              <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/80 space-y-3">
+                <div className="flex gap-6 text-xs text-slate-200">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 accent-indigo-600 rounded" 
+                      checked={formOrden.deja_cargador} 
+                      onChange={e => setFormOrden({ ...formOrden, deja_cargador: e.target.checked })} 
+                    />
+                    🔌 ¿Deja Cargador?
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-bold">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 accent-indigo-600 rounded" 
+                      checked={formOrden.deja_bateria} 
+                      onChange={e => setFormOrden({ ...formOrden, deja_bateria: e.target.checked })} 
+                    />
+                    🔋 ¿Deja Batería?
+                  </label>
+                </div>
+                {formOrden.deja_bateria && (
+                  <div>
+                    <input 
+                      placeholder="N° de Serie (S/N) de la Batería" 
+                      className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" 
+                      value={formOrden.serie_bateria} 
+                      onChange={e => setFormOrden({ ...formOrden, serie_bateria: e.target.value })} 
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Selector de Compras en Nueva Orden */}
+              <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700">
+                <label className="text-xs font-bold text-amber-400 block mb-1">🛒 Asociar Repuesto/Insumo de Compras (Opcional)</label>
+                <select 
+                  className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white"
+                  value={formOrden.repuesto_compra_id}
+                  onChange={e => setFormOrden({ ...formOrden, repuesto_compra_id: e.target.value })}
+                >
+                  <option value="">-- Ninguno --</option>
+                  {compras.map(c => (
+                    <option key={c.id} value={c.id}>{c.descripcion_producto} (Proveedor: {c.proveedor} - Venta Sugerida: ${c.precio_venta_sugerido})</option>
+                  ))}
+                </select>
+              </div>
+
               <textarea placeholder="Síntomas / Fallo reportado *" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" rows={2} value={formOrden.fallo_reportado} onChange={e => setFormOrden({ ...formOrden, fallo_reportado: e.target.value })} />
               <input type="number" placeholder="Presupuesto Estimado ($ COP) - Opcional" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formOrden.valor_estimado} onChange={e => setFormOrden({ ...formOrden, valor_estimado: e.target.value })} />
             </div>
@@ -588,7 +664,7 @@ function MainApp() {
                   setTab('ordenes');
                   setClienteSeleccionado(null);
                   setFormNuevoCliente({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
-                  setFormOrden({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0 });
+                  setFormOrden({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0, deja_cargador: false, deja_bateria: false, serie_bateria: '', repuesto_compra_id: '' });
                 }
               }}
               className="w-full bg-indigo-600 hover:bg-indigo-500 font-bold py-3 rounded-xl text-xs transition shadow-lg shadow-indigo-600/30 text-white"
@@ -605,7 +681,7 @@ function MainApp() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800 text-slate-400 uppercase">
-                  <tr><th className="p-3">ID Registro</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente / Atendió</th><th className="p-3">Equipo</th><th className="p-3">Estado</th><th className="p-3">Presupuesto / Total Pagar</th><th className="p-3 text-right">Acciones</th></tr>
+                  <tr><th className="p-3">ID Registro</th><th className="p-3">Código Cliente</th><th className="p-3">Cliente / Atendió</th><th className="p-3">Equipo & Accesorios</th><th className="p-3">Estado</th><th className="p-3">Presupuesto / Total Pagar</th><th className="p-3 text-right">Acciones</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {ordenes.map((o, index) => {
@@ -619,7 +695,14 @@ function MainApp() {
                           <span className="block text-[10px] text-slate-500">{o.cliente_telefono}</span>
                           <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Atendió: {o.usuario_creador || 'Sistema'}</span>
                         </td>
-                        <td className="p-3">{o.tipo_equipo} {o.marca_modelo}</td>
+                        <td className="p-3">
+                          <p className="font-bold text-white">{o.tipo_equipo} {o.marca_modelo}</p>
+                          <p className="text-[10px] text-slate-400">S/N: {o.serie || 'N/A'}</p>
+                          <div className="flex gap-2 mt-1 text-[10px]">
+                            {o.deja_cargador && <span className="bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-800">🔌 Cargador</span>}
+                            {o.deja_bateria && <span className="bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-800">🔋 Batería {o.serie_bateria ? `(${o.serie_bateria})` : ''}</span>}
+                          </div>
+                        </td>
                         <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
                         <td className="p-3 font-bold text-white">
                           <div className="space-y-0.5">
@@ -631,10 +714,10 @@ function MainApp() {
                           )}
                         </td>
                         <td className="p-3 text-right space-x-1">
-                          {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', presupuesto: o.valor_estimado || 0, totalPagar: o.total_pagar || 0 }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
+                          {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', presupuesto: o.valor_estimado || 0, totalPagar: o.total_pagar || 0, repuestoCompraId: o.repuesto_compra_id || '' }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                           <button onClick={() => enviarWhatsApp(o, idRegistroConsecutivo)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
                           <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o, idConsecutivo: idRegistroConsecutivo })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
-                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={() => setModalRemisionarOrden({ orden: o, idConsecutivo: idRegistroConsecutivo, compraId: '' })} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
+                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={() => setModalRemisionarOrden({ orden: o, idConsecutivo: idRegistroConsecutivo, compraId: o.repuesto_compra_id || '' })} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
                         </td>
                       </tr>
                     );
@@ -765,7 +848,8 @@ function MainApp() {
                   <span className="font-mono text-[11px] text-amber-400">Código: {clienteSeleccionado.codigo_seguimiento}</span>
                 </div>
                 <p><strong className="text-white">Equipo:</strong> {clienteSeleccionado.tipo_equipo} {clienteSeleccionado.marca_modelo} (S/N: {clienteSeleccionado.serie || 'N/A'})</p>
-                <p><strong className="text-white">Fallo Reportado:</strong> {clienteSeleccionado.fallo_reportado}</p>
+                <p className="text-slate-300"><strong>Accesorios:</strong> {clienteSeleccionado.deja_cargador ? '🔌 Cargador ' : ''} {clienteSeleccionado.deja_bateria ? `🔋 Batería (${clienteSeleccionado.serie_bateria || 'S/N'})` : ''} {!clienteSeleccionado.deja_cargador && !clienteSeleccionado.deja_bateria ? 'Ninguno' : ''}</p>
+                <p><strong className="text-white">Fallo Reportado:</strong> {clienteSeleccionado.fallo_reportado || clienteSeleccionado.falla_reportado}</p>
                 <p><strong className="text-white">Diagnóstico Técnico:</strong> {clienteSeleccionado.diagnostico || 'Equipo en proceso de revisión.'}</p>
                 
                 {clienteSeleccionado.numero_factura_asociada && (
@@ -814,7 +898,7 @@ function MainApp() {
           </div>
         )}
 
-        {/* 7. CONFIGURACIÓN & PERMISOS (CORREGIDO PARA VER Y EDITAR PERFILES EXISTENTES) */}
+        {/* 7. CONFIGURACIÓN & PERMISOS */}
         {tab === 'config' && permisos.ver_configuracion && (
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
@@ -837,7 +921,6 @@ function MainApp() {
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
               <h2 className="text-xl font-bold text-white border-b border-slate-800 pb-2">Gestión de Perfiles (Roles) y Permisos</h2>
               
-              {/* LISTADO Y EDICIÓN DE ROLES EXISTENTES */}
               <div className="space-y-4">
                 <p className="text-xs font-bold text-indigo-400 uppercase">Perfiles Existentes en el Sistema</p>
                 <div className="space-y-3">
@@ -914,7 +997,6 @@ function MainApp() {
                 </div>
               </div>
 
-              {/* CREAR NUEVO ROL */}
               <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800 space-y-3 text-xs pt-4 border-t border-slate-700">
                 <p className="font-bold text-indigo-400 uppercase">+ Crear Nuevo Perfil (Rol)</p>
                 <input placeholder="Nombre de Perfil (ej. Técnico Junior, Cajero)" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formNuevoRol.nombre} onChange={e => setFormNuevoRol({ ...formNuevoRol, nombre: e.target.value })} />
@@ -940,9 +1022,10 @@ function MainApp() {
 
       {/* MODALES */}
       
+      {/* 1. Modal Editar Diagnóstico con Selector de Compras */}
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
-          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.id}</h3>
             
             <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700 max-h-36 overflow-y-auto space-y-1 text-xs">
@@ -972,6 +1055,21 @@ function MainApp() {
               <textarea className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" rows={2} value={editOrdForm.diagnostico} onChange={e => setEditOrdForm({ ...editOrdForm, diagnostico: e.target.value })} placeholder="Diagnóstico técnico..." />
             </div>
 
+            {/* Selector de Compras en Modificación / Diagnóstico */}
+            <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700">
+              <label className="text-xs font-bold text-amber-400 block mb-1">🛒 Asociar o Cambiar Repuesto de Compras</label>
+              <select 
+                className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white"
+                value={editOrdForm.repuestoCompraId}
+                onChange={e => setEditOrdForm({ ...editOrdForm, repuestoCompraId: e.target.value })}
+              >
+                <option value="">-- Ninguno --</option>
+                {compras.map(c => (
+                  <option key={c.id} value={c.id}>{c.descripcion_producto} (Proveedor: {c.proveedor} - Venta: ${c.precio_venta_sugerido})</option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="text-[11px] text-indigo-400 font-bold block mb-1">+ Añadir Nuevo Comentario / Avance</label>
               <input className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={editOrdForm.observacion} onChange={e => setEditOrdForm({ ...editOrdForm, observacion: e.target.value })} placeholder="Ej. Se reparó conector de carga..." />
@@ -991,7 +1089,7 @@ function MainApp() {
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setModalEditOrden(null)} className="text-xs text-slate-400 px-3">Cancelar</button>
               <button onClick={async () => { 
-                await actualizarOrden(modalEditOrden.id, editOrdForm.estado, editOrdForm.observacion, editOrdForm.diagnostico, editOrdForm.presupuesto, editOrdForm.totalPagar); 
+                await actualizarOrden(modalEditOrden.id, editOrdForm.estado, editOrdForm.observacion, editOrdForm.diagnostico, editOrdForm.presupuesto, editOrdForm.totalPagar, editOrdForm.repuestoCompraId); 
                 setModalEditOrden(null); 
               }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar Cambios</button>
             </div>
@@ -1035,7 +1133,8 @@ function MainApp() {
                   <div key={o.id} className="p-2.5 bg-slate-800 rounded-xl border border-slate-700 space-y-1">
                     <p className="font-bold text-white">Código: {o.codigo_seguimiento} | Estado: <span className="text-amber-400">{o.estado}</span></p>
                     <p className="text-slate-300">Equipo: {o.tipo_equipo} {o.marca_modelo} (S/N: {o.serie || 'N/A'})</p>
-                    <p className="text-slate-400">Fallo: {o.fallo_reportado}</p>
+                    <p className="text-slate-400">Accesorios: {o.deja_cargador ? '🔌 Cargador ' : ''} {o.deja_bateria ? `🔋 Batería (${o.serie_bateria || 'S/N'})` : ''}</p>
+                    <p className="text-slate-400">Fallo: {o.fallo_reportado || o.falla_reportado}</p>
                     <p className="text-slate-400">Diagnóstico: {o.diagnostico || 'En proceso'}</p>
                   </div>
                 ))
@@ -1369,7 +1468,8 @@ function MainApp() {
                     <p><strong>Atendió:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
                   </div>
                   <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
-                  <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado}</p>
+                  <p><strong>Accesorios:</strong> {documentoImprimir.data.deja_cargador ? '🔌 Cargador ' : ''} {documentoImprimir.data.deja_bateria ? `🔋 Batería (${documentoImprimir.data.serie_bateria || 'S/N'})` : ''} {!documentoImprimir.data.deja_cargador && !documentoImprimir.data.deja_bateria ? 'Ninguno' : ''}</p>
+                  <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado || documentoImprimir.data.falla_reportado}</p>
                   <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
                   
                   <div className="flex gap-4">
@@ -1474,7 +1574,8 @@ function PortalPublico() {
               <span className="font-mono text-[11px] text-amber-400">Código: {ordenConsultaResult.codigo_seguimiento}</span>
             </div>
             <p className="text-white"><strong>Equipo:</strong> {ordenConsultaResult.tipo_equipo} {ordenConsultaResult.marca_modelo}</p>
-            <p className="text-white"><strong>Fallo Reportado:</strong> {ordenConsultaResult.fallo_reportado}</p>
+            <p className="text-slate-300"><strong>Accesorios:</strong> {ordenConsultaResult.deja_cargador ? '🔌 Cargador ' : ''} {ordenConsultaResult.deja_bateria ? `🔋 Batería (${ordenConsultaResult.serie_bateria || 'S/N'})` : ''} {!ordenConsultaResult.deja_cargador && !ordenConsultaResult.deja_bateria ? 'Ninguno' : ''}</p>
+            <p className="text-white"><strong>Fallo Reportado:</strong> {ordenConsultaResult.fallo_reportado || ordenConsultaResult.falla_reportado}</p>
             <p className="text-white"><strong>Diagnóstico Técnico:</strong> {ordenConsultaResult.diagnostico || 'Equipo en proceso de revisión.'}</p>
             
             {ordenConsultaResult.numero_factura_asociada && (
