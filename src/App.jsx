@@ -113,7 +113,6 @@ export function AppProvider({ children }) {
       tipo_equipo: ordenData.tipo_equipo,
       marca_modelo: ordenData.marca_modelo,
       serie: ordenData.serie || '',
-      falla_reportada: ordenData.fallo_reportado,
       fallo_reportado: ordenData.fallo_reportado,
       deja_cargador: ordenData.deja_cargador || false,
       deja_bateria: ordenData.deja_bateria || false,
@@ -190,8 +189,9 @@ export function AppProvider({ children }) {
     const numRemisionGenerado = idConsecutivoStr;
     const valorCobro = orden.total_pagar > 0 ? orden.total_pagar : (orden.valor_estimado || 0);
 
+    const falloStr = orden.fallo_reportado || orden.falla_reportado || 'N/A';
     let itemsRemision = [
-      { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${orden.fallo_reportado || orden.falla_reportado} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: valorCobro }
+      { descripcion: `Servicio Técnico (${orden.tipo_equipo} - ${orden.marca_modelo}) | Fallo: ${falloStr} | Diagnóstico: ${orden.diagnostico || 'N/A'}`, cantidad: 1, precio: valorCobro }
     ];
 
     let costoTotalCompraAsociada = 0;
@@ -372,7 +372,6 @@ function MainApp() {
   const [facturaSeleccionada, setFacturaSeleccionada] = useState(null);
   const [documentoImprimir, setDocumentoImprimir] = useState(null);
   
-  // Estado para ocultar/mostrar la utilidad (Persistente en localStorage)
   const [ocultarUtilidad, setOcultarUtilidad] = useState(() => {
     const saved = localStorage.getItem('techfix_ocultar_utilidad');
     return saved ? JSON.parse(saved) : false;
@@ -757,13 +756,12 @@ function MainApp() {
           </div>
         )}
 
-        {/* 4. REMISIONES Y VENTAS (CON BOTÓN DE OCULTAR UTILIDAD) */}
+        {/* 4. REMISIONES Y VENTAS */}
         {tab === 'facturacion' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
             <div className="flex justify-between items-center flex-wrap gap-3">
               <h2 className="text-xl font-bold text-white">Remisiones y Ventas</h2>
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Botón para alternar visibilidad de la utilidad */}
                 <button 
                   onClick={toggleOcultarUtilidad} 
                   className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border ${
@@ -787,7 +785,6 @@ function MainApp() {
                     <th className="p-3">Fecha</th>
                     <th className="p-3">Cliente / Vendedor</th>
                     <th className="p-3">Total Venta</th>
-                    {/* Se oculta dinámicamente el encabezado si ocultarUtilidad es true */}
                     {!ocultarUtilidad && <th className="p-3">Utilidad</th>}
                     <th className="p-3 text-right">Detalle</th>
                   </tr>
@@ -808,7 +805,6 @@ function MainApp() {
                         </td>
                         <td className="p-3 font-extrabold text-white">$ {totalVenta.toLocaleString('es-CO')}</td>
                         
-                        {/* Se oculta dinámicamente la celda de utilidad si ocultarUtilidad es true */}
                         {!ocultarUtilidad && (
                           <td className="p-3 font-extrabold text-emerald-400">$ {utilidad.toLocaleString('es-CO')}</td>
                         )}
