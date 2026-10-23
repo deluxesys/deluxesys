@@ -7,7 +7,7 @@ import { supabase } from './lib/supabase';
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [empresa, setEmpresa] = useState({ nombre: 'Cargando...', telefono: '', direccion: '', email: '', logoUrl: '' });
+  const [empresa, setEmpresa] = useState({ nombre: 'Cargando...', telefono: '', direccion: '', email: '', logoUrl: '', rutaDescargaPdf: 'Descargas predeterminadas del navegador' });
   const [roles, setRoles] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
   const [clientes, setClientes] = useState([]);
@@ -30,10 +30,11 @@ export function AppProvider({ children }) {
         setEmpresa({ 
           ...resEmp.data[0], 
           email: resEmp.data[0].email || 'contacto@syspcdoctor.com',
-          logoUrl: resEmp.data[0].logo_url 
+          logoUrl: resEmp.data[0].logo_url,
+          rutaDescargaPdf: resEmp.data[0].ruta_descarga_pdf || 'Descargas predeterminadas del navegador'
         });
       } else {
-        setEmpresa({ nombre: 'Taller (Falta Configurar)', telefono: '', direccion: '', email: '', logoUrl: '' });
+        setEmpresa({ nombre: 'Taller (Falta Configurar)', telefono: '', direccion: '', email: '', logoUrl: '', rutaDescargaPdf: 'Descargas predeterminadas del navegador' });
       }
 
       const resRol = await supabase.from('roles').select('*');
@@ -183,10 +184,12 @@ export function AppProvider({ children }) {
     }
   };
 
-  const remisionarOrden = async (orden, idConsecutivoStr, nombreUsuario, itemCompraSeleccionado = null) => {
+  const remisionarOrden = async (orden, nombreUsuario, itemCompraSeleccionado = null) => {
     const cliEncontrado = clientes.find(c => c.nombre.toLowerCase() === orden.cliente_nombre.toLowerCase());
     const telCliente = cliEncontrado ? cliEncontrado.telefono : (orden.cliente_telefono || 'N/A');
-    const numRemisionGenerado = idConsecutivoStr;
+    
+    const consecutivoNum = 10001 + facturas.length;
+    const numRemisionGenerado = `REM-${consecutivoNum}`;
     const valorCobro = orden.total_pagar > 0 ? orden.total_pagar : (orden.valor_estimado || 0);
 
     const falloStr = orden.fallo_reportado || orden.falla_reportado || 'N/A';
@@ -239,7 +242,9 @@ export function AppProvider({ children }) {
   const agregarVentaDirecta = async (clienteObj, itemsArray, totalCalculado, costoCompraTotal, nombreUsuario) => {
     const nombreCliente = clienteObj ? clienteObj.nombre : 'Cliente Mostrador';
     const telefonoCliente = clienteObj ? (clienteObj.telefono || 'N/A') : 'N/A';
-    const numRemisionGenerado = `REM-${Math.floor(Math.random() * 90000) + 10000}`;
+    
+    const consecutivoNum = 10001 + facturas.length;
+    const numRemisionGenerado = `REM-${consecutivoNum}`;
 
     const nuevaFac = {
       numero_factura: numRemisionGenerado,
@@ -284,7 +289,14 @@ export function AppProvider({ children }) {
   };
 
   const actualizarEmpresa = async (datos) => {
-    const updateData = { nombre: datos.nombre, telefono: datos.telefono, email: datos.email, direccion: datos.direccion, logo_url: datos.logoUrl };
+    const updateData = { 
+      nombre: datos.nombre, 
+      telefono: datos.telefono, 
+      email: datos.email, 
+      direccion: datos.direccion, 
+      logo_url: datos.logoUrl,
+      ruta_descarga_pdf: datos.rutaDescargaPdf
+    };
     const { data: ext } = await supabase.from('empresa').select('id').limit(1);
     
     if (ext && ext.length > 0) {
@@ -389,8 +401,14 @@ function MainApp() {
     tipo: 'AMBOS'
   });
 
+  // Estados nuevos para búsqueda y ordenamiento por fecha en Remisiones y Ventas
+  const [facturasFiltroInicio, setFacturasFiltroInicio] = useState('');
+  const [facturasFiltroFin, setFacturasFiltroFin] = useState('');
+  const [facturasOrdenFecha, setFacturasOrdenFecha] = useState('recientes'); // 'recientes' o 'antiguas'
+
   const [tipoClienteOpt, setTipoClienteOpt] = useState('EXISTENTE');
   const [busquedaCliente, setBusquedaCliente] = useState('');
+  const [busquedaDirectorioClientes, setBusquedaDirectorioClientes] = useState('');
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   
@@ -418,14 +436,33 @@ function MainApp() {
   const [formCompra, setFormCompra] = useState({ proveedor: '', descripcion_producto: '', costo: 0, precio_venta_sugerido: 0 });
   const [mostrarHistorialPortal, setMostrarHistorialPortal] = useState(false);
 
-  const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } });
+  const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true } });
   const [formUsuarioNuevo, setFormUsuarioNuevo] = useState({ nombre: '', usuario: '', clave: '', rolId: roles[0]?.id || '' });
 
-  const clientesFiltradosBusqueda = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaCliente.toLowerCase()) || c.telefono.includes(busquedaCliente));
-  const clientesFiltradosVenta = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaClienteVenta.toLowerCase()) || c.telefono.includes(busquedaClienteVenta));
+  const normalizarBusqueda = (valor) => String(valor ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+  const terminoBusquedaDirectorio = normalizarBusqueda(busquedaDirectorioClientes);
+  const clientesFiltradosDirectorio = clientes.filter(c => {
+    if (!terminoBusquedaDirectorio) return true;
+
+    const nombre = normalizarBusqueda(c.nombre);
+    const cedula = normalizarBusqueda(c.cedula);
+    const telefono = normalizarBusqueda(c.telefono);
+
+    return nombre.includes(terminoBusquedaDirectorio) ||
+      cedula.includes(terminoBusquedaDirectorio) ||
+      telefono.includes(terminoBusquedaDirectorio);
+  });
+
+  const clientesFiltradosBusqueda = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaCliente.toLowerCase()) || String(c.telefono || '').includes(busquedaCliente));
+  const clientesFiltradosVenta = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaClienteVenta.toLowerCase()) || String(c.telefono || '').includes(busquedaClienteVenta));
 
   const enviarWhatsApp = (orden, idConsecutivoStr) => {
-    const msg = `Hola *${orden.cliente_nombre}* 👋\n\nTe saludamos de *${empresa.nombre}*.\n\nTu orden *${idConsecutivoStr}* (*${orden.tipo_equipo} ${orden.marca_modelo}*) se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance, diagnóstico y estado de tu equipo ingresando a nuestra plataforma:\n🔗 https://deluxesyssys3.vercel.app/portal\n\nUtiliza tu código único: *${orden.codigo_seguimiento}*`;
+    const msg = `Hola *${orden.cliente_nombre}* 👋\n\nTe saludamos de *${empresa.nombre}*.\n\nTu orden *${idConsecutivoStr}* (*${orden.tipo_equipo} ${orden.marca_modelo}*) se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance, diagnóstico y estado de tu equipo ingresando a nuestra plataforma:\n🔗 https://https://deluxesyssys3.vercel.app/portal\n\nUtiliza tu código único: *${orden.codigo_seguimiento}*`;
     window.open(`https://wa.me/57${orden.cliente_telefono}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
@@ -477,7 +514,7 @@ function MainApp() {
       csvContent += linea + "\r\n";
     });
 
-    csvContent += `\r\n,,, ,TOTALES DEL PERIODO:,"$${sumaTotalCostos}","$${sumaTotalVentas}","$${sumaTotalGanancias}"\r\n`;
+    csvContent += `\r\n,,, ,TOTALES DEL PERIODOS:,"$${sumaTotalCostos}","$${sumaTotalVentas}","$${sumaTotalGanancias}"\r\n`;
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -498,9 +535,18 @@ function MainApp() {
     }
   };
 
-  const permisos = usuarioSesion?.id === 'emergencia' 
-    ? { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true } 
-    : (rolActual ? (typeof rolActual.permisos === 'string' ? JSON.parse(rolActual.permisos) : rolActual.permisos) : {});
+  const permisosRol = rolActual ? (typeof rolActual.permisos === 'string' ? JSON.parse(rolActual.permisos) : rolActual.permisos) : {};
+  
+  const permisos = usuarioSesion?.id === 'emergencia' || (rolActual && rolActual.nombre?.toLowerCase().includes('admin'))
+    ? { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true }
+    : {
+        crear_orden: permisosRol.crear_orden ?? true,
+        editar_diagnostico: permisosRol.editar_diagnostico ?? true,
+        ver_clientes: permisosRol.ver_clientes ?? true,
+        editar_clientes: permisosRol.editar_clientes ?? true,
+        facturar: permisosRol.facturar ?? true,
+        ver_configuracion: permisosRol.ver_configuracion ?? true,
+    };
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans">
@@ -723,7 +769,7 @@ function MainApp() {
                           {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', presupuesto: o.valor_estimado || 0, totalPagar: o.total_pagar || 0, repuestoCompraId: o.repuesto_compra_id || '' }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                           <button onClick={() => enviarWhatsApp(o, idRegistroConsecutivo)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
                           <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o, idConsecutivo: idRegistroConsecutivo })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
-                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={() => setModalRemisionarOrden({ orden: o, idConsecutivo: idRegistroConsecutivo, compraId: o.repuesto_compra_id || '' })} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
+                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={() => setModalRemisionarOrden({ orden: o, compraId: o.repuesto_compra_id || '' })} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
                         </td>
                       </tr>
                     );
@@ -738,21 +784,70 @@ function MainApp() {
         {tab === 'clientes' && permisos.ver_clientes && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
             <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-white">Directorio de Clientes</h2><div className="space-x-2"><button onClick={exportarClientesCSV} className="bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📊 Exportar</button>{permisos.editar_clientes && <button onClick={() => { setModalEditCliente({}); setFormNuevoCliente({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' }); }} className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold">+ Nuevo Cliente</button>}</div></div>
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Cliente</th><th className="p-3">Teléfono</th><th className="p-3 text-right">Acciones</th></tr></thead>
-              <tbody className="divide-y divide-slate-800">
-                {clientes.map(c => (
-                  <tr key={c.id} className="hover:bg-slate-800/40">
-                    <td className="p-3 font-bold text-white">{c.nombre}</td>
-                    <td className="p-3 text-indigo-400">{c.telefono}</td>
-                    <td className="p-3 text-right space-x-1">
-                      {permisos.editar_clientes && <button onClick={() => { setModalEditCliente(c); setFormNuevoCliente({ nombre: c.nombre || '', telefono: c.telefono || '', cedula: c.cedula || '', email: c.email || '', direccion: c.direccion || '' }); }} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">✏️ Editar</button>}
-                      <button onClick={() => setVerHistorialCliente(c)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">📜 Historial</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {clientes.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-xs space-y-2">
+                <p className="text-sm font-semibold text-slate-300">No hay clientes registrados en esta empresa todavía.</p>
+                <p>Haz clic en el botón <strong>+ Nuevo Cliente</strong> o registra una nueva orden para que aparezcan aquí.</p>
+              </div>
+            ) : (
+              <>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={busquedaDirectorioClientes}
+                    onChange={e => setBusquedaDirectorioClientes(e.target.value)}
+                    placeholder="🔍 Buscar por nombre, cédula o número de celular..."
+                    aria-label="Buscar clientes por nombre, cédula o celular"
+                    className="w-full bg-slate-800 border border-slate-700 p-3 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {busquedaDirectorioClientes && (
+                    <button
+                      type="button"
+                      onClick={() => setBusquedaDirectorioClientes('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+                      aria-label="Limpiar búsqueda"
+                    >
+                      ✕ Limpiar
+                    </button>
+                  )}
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    {clientesFiltradosDirectorio.length} de {clientes.length} clientes
+                  </p>
+                </div>
+
+                {clientesFiltradosDirectorio.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 text-xs">
+                    No se encontraron clientes con ese nombre, cédula o número de celular.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-300">
+                      <thead className="bg-slate-800 text-slate-400 uppercase">
+                        <tr>
+                          <th className="p-3">Cliente</th>
+                          <th className="p-3">Cédula</th>
+                          <th className="p-3">Teléfono</th>
+                          <th className="p-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {clientesFiltradosDirectorio.map(c => (
+                          <tr key={c.id} className="hover:bg-slate-800/40">
+                            <td className="p-3 font-bold text-white">{c.nombre}</td>
+                            <td className="p-3 text-slate-300">{c.cedula || '—'}</td>
+                            <td className="p-3 text-indigo-400">{c.telefono || '—'}</td>
+                            <td className="p-3 text-right space-x-1">
+                              {permisos.editar_clientes && <button onClick={() => { setModalEditCliente(c); setFormNuevoCliente({ nombre: c.nombre || '', telefono: c.telefono || '', cedula: c.cedula || '', email: c.email || '', direccion: c.direccion || '' }); }} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">✏️ Editar</button>}
+                              <button onClick={() => setVerHistorialCliente(c)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">📜 Historial</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -777,6 +872,50 @@ function MainApp() {
                 <button onClick={() => { setModalVenta(true); setTipoClienteVentaOpt('EXISTENTE'); setClienteVentaSeleccionado(null); setCompraSeleccionadaVentaId(''); }} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold">+ Venta Directa</button>
               </div>
             </div>
+
+            {/* CONTROLES DE BÚSQUEDA Y ORDENAMIENTO POR FECHA */}
+            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/80 flex flex-wrap gap-3 items-end text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1 font-semibold">🔍 Desde la fecha</label>
+                <input 
+                  type="date" 
+                  className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white"
+                  value={facturasFiltroInicio}
+                  onChange={e => setFacturasFiltroInicio(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1 font-semibold">🔍 Hasta la fecha</label>
+                <input 
+                  type="date" 
+                  className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white"
+                  value={facturasFiltroFin}
+                  onChange={e => setFacturasFiltroFin(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1 font-semibold">⚡ Ordenar por Fecha</label>
+                <select 
+                  className="bg-slate-800 border border-slate-700 p-2 rounded-xl text-white font-bold"
+                  value={facturasOrdenFecha}
+                  onChange={e => setFacturasOrdenFecha(e.target.value)}
+                >
+                  <option value="recientes">Más recientes primero</option>
+                  <option value="antiguas">Más antiguas primero</option>
+                </select>
+              </div>
+              {(facturasFiltroInicio || facturasFiltroFin) && (
+                <div>
+                  <button 
+                    onClick={() => { setFacturasFiltroInicio(''); setFacturasFiltroFin(''); }}
+                    className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-2 rounded-xl font-semibold transition"
+                  >
+                    ✕ Limpiar Fechas
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-800 text-slate-400 uppercase">
@@ -790,32 +929,60 @@ function MainApp() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {facturas.map(f => {
-                    const totalVenta = Number(f.total || 0);
-                    const costoCompra = Number(f.costo_compra || 0);
-                    const utilidad = totalVenta - costoCompra;
+                  {(() => {
+                    // Filtrar por rango de fechas si están definidas
+                    const facturasFiltradas = facturas.filter(f => {
+                      if (facturasFiltroInicio && f.fecha < facturasFiltroInicio) return false;
+                      if (facturasFiltroFin && f.fecha > facturasFiltroFin) return false;
+                      return true;
+                    });
 
-                    return (
-                      <tr key={f.id} className="hover:bg-slate-800/40">
-                        <td className="p-3 font-bold text-indigo-400">{f.numero_factura}</td>
-                        <td className="p-3 text-slate-400">{f.fecha}</td>
-                        <td className="p-3 font-medium text-white">
-                          {f.cliente_nombre}
-                          <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Vendedor: {f.usuario_creador || 'Sistema'}</span>
-                        </td>
-                        <td className="p-3 font-extrabold text-white">$ {totalVenta.toLocaleString('es-CO')}</td>
-                        
-                        {!ocultarUtilidad && (
-                          <td className="p-3 font-extrabold text-emerald-400">$ {utilidad.toLocaleString('es-CO')}</td>
-                        )}
+                    // Ordenar según la selección del usuario
+                    const facturasOrdenadas = [...facturasFiltradas].sort((a, b) => {
+                      if (facturasOrdenFecha === 'recientes') {
+                        return new Date(b.fecha) - new Date(a.fecha) || b.id - a.id;
+                      } else {
+                        return new Date(a.fecha) - new Date(b.fecha) || a.id - b.id;
+                      }
+                    });
 
-                        <td className="p-3 text-right space-x-1">
-                          <button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button>
-                          <button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                    if (facturasOrdenadas.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={ocultarUtilidad ? 5 : 6} className="text-center py-8 text-slate-400">
+                            No se encontraron remisiones o ventas en el rango de fechas seleccionado.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return facturasOrdenadas.map(f => {
+                      const totalVenta = Number(f.total || 0);
+                      const costoCompra = Number(f.costo_compra || 0);
+                      const utilidad = totalVenta - costoCompra;
+
+                      return (
+                        <tr key={f.id} className="hover:bg-slate-800/40">
+                          <td className="p-3 font-bold text-indigo-400">{f.numero_factura}</td>
+                          <td className="p-3 text-slate-400">{f.fecha}</td>
+                          <td className="p-3 font-medium text-white">
+                            {f.cliente_nombre}
+                            <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Vendedor: {f.usuario_creador || 'Sistema'}</span>
+                          </td>
+                          <td className="p-3 font-extrabold text-white">$ {totalVenta.toLocaleString('es-CO')}</td>
+                          
+                          {!ocultarUtilidad && (
+                            <td className="p-3 font-extrabold text-emerald-400">$ {utilidad.toLocaleString('es-CO')}</td>
+                          )}
+
+                          <td className="p-3 text-right space-x-1">
+                            <button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button>
+                            <button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -948,6 +1115,13 @@ function MainApp() {
                   <div className="flex items-center gap-3 mt-1">{empresa.logoUrl && <img src={empresa.logoUrl} className="w-16 h-16 object-contain bg-slate-800 border rounded-lg p-1" />} <input type="file" accept="image/*" onChange={handleLogoUpload} className="text-xs text-white file:bg-indigo-600 file:text-white file:rounded-xl file:border-0 file:px-3 file:py-1.5 cursor-pointer" /></div>
                 </div>
                 <div><label className="text-slate-400">Nombre de la Empresa</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.nombre} onChange={e => setEmpresa({ ...empresa, nombre: e.target.value })} /></div>
+                
+                <div>
+                  <label className="text-slate-400 font-bold block mb-1">📁 Carpeta / Ruta predeterminada de descarga de PDF para WhatsApp</label>
+                  <input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.rutaDescargaPdf} onChange={e => setEmpresa({ ...empresa, rutaDescargaPdf: e.target.value })} placeholder="Ej. C:/Users/TuUsuario/Downloads" />
+                  <p className="text-[11px] text-slate-500 mt-1">Nota: Los navegadores descargan por defecto en la carpeta de descargas configurada en tu navegador web.</p>
+                </div>
+
                 <div className="grid grid-cols-3 gap-3">
                   <div><label className="text-slate-400">Teléfono</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.telefono} onChange={e => setEmpresa({ ...empresa, telefono: e.target.value })} /></div>
                   <div><label className="text-slate-400">Correo</label><input className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={empresa.email} onChange={e => setEmpresa({ ...empresa, email: e.target.value })} /></div>
@@ -1046,7 +1220,7 @@ function MainApp() {
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.facturar} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, facturar: e.target.checked } })} /> Remisiones, Ventas y Compras</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.ver_configuracion} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, ver_configuracion: e.target.checked } })} /> Configuración</label>
                 </div>
-                <button onClick={async () => { if (!formNuevoRol.nombre) return alert('Ingresa un nombre para el rol.'); await agregarRol(formNuevoRol.nombre, formNuevoRol.permisos); alert('Rol creado con éxito'); setFormNuevoRol({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: false, editar_clientes: false, facturar: false, ver_configuracion: false } }); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Nuevo Rol</button>
+                <button onClick={async () => { if (!formNuevoRol.nombre) return alert('Ingresa un nombre para el rol.'); await agregarRol(formNuevoRol.nombre, formNuevoRol.permisos); alert('Rol creado con éxito'); setFormNuevoRol({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true } }); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Nuevo Rol</button>
 
                 <p className="font-bold text-indigo-400 uppercase pt-4 border-t border-slate-700">Crear Usuario y Asignar Rol</p>
                 <div className="grid grid-cols-2 gap-2"><input placeholder="Nombre Completo" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.nombre} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, nombre: e.target.value })} /><input placeholder="Usuario" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.usuario} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, usuario: e.target.value })} /></div>
@@ -1316,7 +1490,7 @@ function MainApp() {
       {modalRemisionarOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-4">
-            <h3 className="font-bold text-white text-base">Remisionar Orden #{modalRemisionarOrden.idConsecutivo}</h3>
+            <h3 className="font-bold text-white text-base">Remisionar Orden</h3>
             <p className="text-xs text-slate-400">Cliente: <strong className="text-white">{modalRemisionarOrden.orden.cliente_nombre}</strong></p>
             
             <div className="space-y-2 pt-2">
@@ -1343,11 +1517,11 @@ function MainApp() {
                   itemCompraObj = compras.find(c => c.id.toString() === modalRemisionarOrden.compraId.toString());
                 }
 
-                const fac = await remisionarOrden(modalRemisionarOrden.orden, modalRemisionarOrden.idConsecutivo, nombreUsrActual, itemCompraObj);
+                const fac = await remisionarOrden(modalRemisionarOrden.orden, nombreUsrActual, itemCompraObj);
                 setModalRemisionarOrden(null);
                 if(fac){
                   alert('¡Remisión Generada Correctamente!');
-                  setDocumentoImprimir({ tipo: 'FACTURA', data: fac, idConsecutivo: modalRemisionarOrden.idConsecutivo });
+                  setDocumentoImprimir({ tipo: 'FACTURA', data: fac });
                 }
               }} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold">Confirmar y Generar Remisión</button>
             </div>
@@ -1559,7 +1733,43 @@ function MainApp() {
 
             <div className="flex justify-end gap-2 pt-2 border-t no-imprimir">
               <button onClick={() => setDocumentoImprimir(null)} className="text-slate-500 px-3 text-xs">Cerrar</button>
-              <button onClick={() => window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-xs">Imprimir (Mitad Carta)</button>
+              <button 
+                onClick={() => {
+                  const doc = documentoImprimir.data;
+                  const tel = doc.cliente_telefono || '3000000000';
+                  const nombreClienteLimpio = (doc.cliente_nombre || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
+                  const telefonoLimpio = (doc.cliente_telefono || '0000000000').replace(/[^a-zA-Z0-9]/g, '');
+                  
+                  // Nombre del archivo estructurado con número, cliente y celular
+                  const elHtml = document.getElementById('seccion-impresion').innerHTML;
+                  const blob = new Blob([`<html><head><title>Comprobante</title><style>body{font-family:sans-serif;padding:20px;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:8px;}</style></head><body>${elHtml}</body></html>`], { type: 'text/html' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  
+                  const nombreArchivo = documentoImprimir.tipo === 'FACTURA' 
+                    ? `Remision_${doc.numero_factura}_${nombreClienteLimpio}_${telefonoLimpio}.html` 
+                    : `Orden_${documentoImprimir.idConsecutivo || doc.codigo_seguimiento}_${nombreClienteLimpio}_${telefonoLimpio}.html`;
+                  
+                  a.download = nombreArchivo;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+
+                  let msg = '';
+                  if (documentoImprimir.tipo === 'FACTURA') {
+                    msg = `Hola *${doc.cliente_nombre}* 👋\n\nTe enviamos los detalles de tu Remisión *${doc.numero_factura}* en *${empresa.nombre}*.`;
+                  } else {
+                    msg = `Hola *${doc.cliente_nombre}* 👋\n\nTe enviamos los detalles de tu Orden de Entrada *${documentoImprimir.idConsecutivo || 'N/A'}* en *${empresa.nombre}*.`;
+                  }
+                  window.open(`https://wa.me/57${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+                }} 
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl font-bold text-xs transition flex items-center gap-1"
+                title="Descarga el documento con nombre personalizado y abre WhatsApp"
+              >
+                💬 Enviar por WhatsApp
+              </button>
+              <button onClick={() => window.print()} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl font-bold text-xs transition">Imprimir</button>
             </div>
           </div>
         </div>
