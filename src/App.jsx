@@ -362,6 +362,37 @@ const obtenerGarantiaFactura = (factura) => {
 
 const esRegistroGarantia = (item) => !!item && item._tipo === 'garantia';
 
+// Normaliza teléfonos para enlaces de WhatsApp (wa.me).
+// Los números colombianos de 10 dígitos reciben el indicativo 57.
+// Los números que ya incluyen indicativo internacional se conservan.
+const normalizarTelefonoWhatsApp = (telefono) => {
+  if (telefono === null || telefono === undefined || String(telefono).trim() === '') {
+    return null;
+  }
+
+  let numero = String(telefono).trim().replace(/\D/g, '');
+
+  // Convierte el prefijo internacional 00: 0057... -> 57...
+  if (numero.startsWith('00')) {
+    numero = numero.slice(2);
+  }
+
+  // Algunos registros guardan el celular colombiano con un cero inicial.
+  if (numero.length === 11 && numero.startsWith('0')) {
+    numero = '57' + numero.slice(1);
+  } else if (numero.length === 10) {
+    // Número celular colombiano local sin indicativo.
+    numero = '57' + numero;
+  }
+
+  // wa.me requiere un número internacional solo con dígitos (8 a 15 dígitos).
+  if (numero.length < 8 || numero.length > 15) {
+    return null;
+  }
+
+  return numero;
+};
+
 
 function LoginScreen() {
   const { login, empresa } = useApp();
@@ -526,8 +557,16 @@ function MainApp() {
   const clientesFiltradosVenta = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaClienteVenta.toLowerCase()) || String(c.telefono || '').includes(busquedaClienteVenta));
 
   const enviarWhatsApp = (orden, idConsecutivoStr) => {
-    const msg = `Hola *${orden.cliente_nombre}* 👋\n\nTe saludamos de *${empresa.nombre}*.\n\nTu orden *${idConsecutivoStr}* (*${orden.tipo_equipo} ${orden.marca_modelo}*) se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance, diagnóstico y estado de tu equipo ingresando a nuestra plataforma:\n🔗 https://deluxesyssys3.vercel.app/portal\n\nUtiliza tu código único: *${orden.codigo_seguimiento}*`;
-    window.open(`https://wa.me/57${orden.cliente_telefono}?text=${encodeURIComponent(msg)}`, '_blank');
+    const telefono = normalizarTelefonoWhatsApp(orden.cliente_telefono);
+
+    if (!telefono) {
+      alert('El cliente no tiene un teléfono válido para WhatsApp. Revisa su número en el directorio de clientes.');
+      return;
+    }
+
+    const msg = `Hola *${orden.cliente_nombre}* 👋\n\nTe saludamos de *${empresa.nombre}*.\n\nTu orden *${idConsecutivoStr}* (*${orden.tipo_equipo} ${orden.marca_modelo}*) se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance, diagnóstico y estado de tu equipo ingresando a nuestra plataforma:\n🔗 https://syspcdoctor.vercel.app/portal\n\nUtiliza tu código único: *${orden.codigo_seguimiento}*`;
+    const url = `https://wa.me/${telefono}?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const exportarClientesCSV = () => {
@@ -1882,7 +1921,11 @@ function MainApp() {
               <button 
                 onClick={() => {
                   const doc = documentoImprimir.data;
-                  const tel = doc.cliente_telefono || '3000000000';
+                  const tel = normalizarTelefonoWhatsApp(doc.cliente_telefono);
+                  if (!tel) {
+                    alert('El cliente no tiene un teléfono válido para WhatsApp. Revisa sus datos antes de enviar.');
+                    return;
+                  }
                   const nombreClienteLimpio = (doc.cliente_nombre || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
                   const telefonoLimpio = (doc.cliente_telefono || '0000000000').replace(/[^a-zA-Z0-9]/g, '');
                   
@@ -1908,7 +1951,7 @@ function MainApp() {
                   } else {
                     msg = `Hola *${doc.cliente_nombre}* 👋\n\nTe enviamos los detalles de tu Orden de Entrada *${documentoImprimir.idConsecutivo || 'N/A'}* en *${empresa.nombre}*.`;
                   }
-                  window.open(`https://wa.me/57${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+                  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener,noreferrer');
                 }} 
                 className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-xl font-bold text-xs transition flex items-center gap-1"
                 title="Descarga el documento con nombre personalizado y abre WhatsApp"
