@@ -193,6 +193,31 @@ export function AppProvider({ children }) {
     }
   };
 
+  const actualizarPrecioCompra = async (id, precio) => {
+    const precioNumerico = precio === '' || precio === null ? 0 : Number(precio);
+    if (!Number.isFinite(precioNumerico) || precioNumerico < 0) {
+      alert('Ingresa un precio de venta válido.');
+      return false;
+    }
+
+    const { error } = await supabase
+      .from('compras')
+      .update({ precio_venta_sugerido: precioNumerico })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error actualizando el precio de venta:', error);
+      alert('No se pudo actualizar el precio de venta. Intenta nuevamente.');
+      return false;
+    }
+
+    setCompras(prev => prev.map(c => c.id === id
+      ? { ...c, precio_venta_sugerido: precioNumerico }
+      : c
+    ));
+    return true;
+  };
+
   const remisionarOrden = async (orden, nombreUsuario, itemCompraSeleccionado = null, garantiaAplica = undefined, garantiaTiempo = undefined) => {
     const cliEncontrado = clientes.find(c => c.nombre.toLowerCase() === orden.cliente_nombre.toLowerCase());
     const telCliente = cliEncontrado ? cliEncontrado.telefono : (orden.cliente_telefono || 'N/A');
@@ -335,7 +360,7 @@ export function AppProvider({ children }) {
       clientes, agregarCliente, modificarCliente,
       ordenes, agregarOrden, actualizarOrden,
       facturas, remisionarOrden, agregarVentaDirecta,
-      compras, agregarCompra
+      compras, agregarCompra, actualizarPrecioCompra
     }}>
       {children}
     </AppContext.Provider>
@@ -438,7 +463,7 @@ function LoginScreen() {
 
 function MainApp() {
   const {
-    empresa, clientes, ordenes, facturas, compras, agregarCompra, roles, agregarRol, actualizarRol, usuarios, agregarUsuario,
+    empresa, clientes, ordenes, facturas, compras, agregarCompra, actualizarPrecioCompra, roles, agregarRol, actualizarRol, usuarios, agregarUsuario,
     usuarioSesion, logout, rolActual,
     agregarCliente, modificarCliente, agregarOrden, actualizarOrden,
     remisionarOrden, agregarVentaDirecta, setEmpresa
@@ -510,7 +535,10 @@ function MainApp() {
   const [garantiaVentaAplica, setGarantiaVentaAplica] = useState(false);
   const [garantiaVentaTiempo, setGarantiaVentaTiempo] = useState('');
 
-  const [formCompra, setFormCompra] = useState({ proveedor: '', descripcion_producto: '', costo: 0, precio_venta_sugerido: 0 });
+  const [formCompra, setFormCompra] = useState({ proveedor: '', descripcion_producto: '', costo: 0, precio_venta_sugerido: '' });
+  const [comprasFiltroInicio, setComprasFiltroInicio] = useState('');
+  const [comprasFiltroFin, setComprasFiltroFin] = useState('');
+  const [comprasBusqueda, setComprasBusqueda] = useState('');
   const [mostrarHistorialPortal, setMostrarHistorialPortal] = useState(false);
 
   const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true } });
@@ -1121,28 +1149,91 @@ function MainApp() {
         {/* 5. COMPRAS Y GASTOS */}
         {tab === 'compras' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center gap-3 flex-wrap">
               <div>
                 <h2 className="text-xl font-bold text-white">Compras y Gastos del Local</h2>
                 <p className="text-xs text-slate-400">Registra repuestos e insumos comprados para usar o revender a clientes.</p>
               </div>
-              <button onClick={() => { setModalCompra(true); setFormCompra({ proveedor: '', descripcion_producto: '', costo: 0, precio_venta_sugerido: 0 }); }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition">+ Registrar Compra</button>
+              <button onClick={() => { setModalCompra(true); setFormCompra({ proveedor: '', descripcion_producto: '', costo: 0, precio_venta_sugerido: '' }); }} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-xl text-xs font-bold transition">+ Registrar Compra</button>
             </div>
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Fecha</th><th className="p-3">Proveedor</th><th className="p-3">Producto / Repuesto</th><th className="p-3">Costo Invertido</th><th className="p-3">Precio Venta Sugerido</th><th className="p-3">Registró</th></tr></thead>
-              <tbody className="divide-y divide-slate-800">
-                {compras.map(c => (
-                  <tr key={c.id} className="hover:bg-slate-800/40">
-                    <td className="p-3 text-slate-400">{c.fecha}</td>
-                    <td className="p-3 font-bold text-white">{c.proveedor}</td>
-                    <td className="p-3 text-indigo-300">{c.descripcion_producto}</td>
-                    <td className="p-3 font-bold text-rose-400">$ {(c.costo || 0).toLocaleString('es-CO')}</td>
-                    <td className="p-3 font-bold text-emerald-400">$ {(c.precio_venta_sugerido || 0).toLocaleString('es-CO')}</td>
-                    <td className="p-3 text-slate-400">{c.usuario_creador || 'Sistema'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-800/60 border border-slate-700 rounded-xl p-3">
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">Desde la fecha</label>
+                <input type="date" value={comprasFiltroInicio} onChange={e => setComprasFiltroInicio(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-2 rounded-lg text-white text-xs" />
+              </div>
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1">Hasta la fecha</label>
+                <input type="date" value={comprasFiltroFin} onChange={e => setComprasFiltroFin(e.target.value)} className="w-full bg-slate-900 border border-slate-700 p-2 rounded-lg text-white text-xs" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-[11px] text-slate-400 mb-1">Buscar proveedor/tienda o producto comprado</label>
+                <input type="text" value={comprasBusqueda} onChange={e => setComprasBusqueda(e.target.value)} placeholder="Nombre de tienda, proveedor o producto..." className="w-full bg-slate-900 border border-slate-700 p-2 rounded-lg text-white text-xs placeholder-slate-500" />
+              </div>
+              <div className="md:col-span-4 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-400">{compras.filter(c => {
+                  const fecha = String(c.fecha || '').slice(0, 10);
+                  const termino = normalizarBusqueda(comprasBusqueda);
+                  const texto = normalizarBusqueda(`${c.proveedor || ''} ${c.descripcion_producto || ''}`);
+                  if (comprasFiltroInicio && (!fecha || fecha < comprasFiltroInicio)) return false;
+                  if (comprasFiltroFin && (!fecha || fecha > comprasFiltroFin)) return false;
+                  return !termino || texto.includes(termino);
+                }).length} compra(s) encontrada(s)</span>
+                <button type="button" onClick={() => { setComprasFiltroInicio(''); setComprasFiltroFin(''); setComprasBusqueda(''); }} className="text-indigo-300 hover:text-white text-[11px] font-semibold">Limpiar filtros</button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-slate-800 text-slate-400 uppercase"><tr><th className="p-3">Fecha</th><th className="p-3">Proveedor</th><th className="p-3">Producto / Repuesto</th><th className="p-3">Costo Invertido</th><th className="p-3">Precio Venta (editable)</th><th className="p-3">Registró</th></tr></thead>
+                <tbody className="divide-y divide-slate-800">
+                  {compras.filter(c => {
+                    const fecha = String(c.fecha || '').slice(0, 10);
+                    const termino = normalizarBusqueda(comprasBusqueda);
+                    const texto = normalizarBusqueda(`${c.proveedor || ''} ${c.descripcion_producto || ''}`);
+                    if (comprasFiltroInicio && (!fecha || fecha < comprasFiltroInicio)) return false;
+                    if (comprasFiltroFin && (!fecha || fecha > comprasFiltroFin)) return false;
+                    return !termino || texto.includes(termino);
+                  }).map(c => (
+                    <tr key={c.id} className="hover:bg-slate-800/40">
+                      <td className="p-3 text-slate-400 whitespace-nowrap">{c.fecha}</td>
+                      <td className="p-3 font-bold text-white">{c.proveedor}</td>
+                      <td className="p-3 text-indigo-300">{c.descripcion_producto}</td>
+                      <td className="p-3 font-bold text-rose-400 whitespace-nowrap">$ {(c.costo || 0).toLocaleString('es-CO')}</td>
+                      <td className="p-3 min-w-[150px]">
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-400">$</span>
+                          <input key={`${c.id}-${c.precio_venta_sugerido || 0}`} type="number" min="0" step="1" aria-label={`Precio de venta de ${c.descripcion_producto}`} defaultValue={c.precio_venta_sugerido ?? ''} placeholder="Sin definir" onBlur={async e => {
+                            const valor = e.target.value.trim();
+                            const actual = Number(c.precio_venta_sugerido) || 0;
+                            const nuevo = valor === '' ? 0 : Number(valor);
+                            if (!Number.isFinite(nuevo) || nuevo < 0) {
+                              alert('Ingresa un precio de venta válido.');
+                              e.target.value = actual;
+                              return;
+                            }
+                            if (nuevo !== actual) {
+                              const guardado = await actualizarPrecioCompra(c.id, nuevo);
+                              if (!guardado) e.target.value = actual;
+                            }
+                          }} className="w-32 bg-slate-800 border border-slate-700 focus:border-emerald-500 p-2 rounded-lg text-emerald-300 font-bold" />
+                        </div>
+                        <span className="block text-[10px] text-slate-500 mt-1">Se guarda al salir del campo</span>
+                      </td>
+                      <td className="p-3 text-slate-400">{c.usuario_creador || 'Sistema'}</td>
+                    </tr>
+                  ))}
+                  {compras.filter(c => {
+                    const fecha = String(c.fecha || '').slice(0, 10);
+                    const termino = normalizarBusqueda(comprasBusqueda);
+                    const texto = normalizarBusqueda(`${c.proveedor || ''} ${c.descripcion_producto || ''}`);
+                    if (comprasFiltroInicio && (!fecha || fecha < comprasFiltroInicio)) return false;
+                    if (comprasFiltroFin && (!fecha || fecha > comprasFiltroFin)) return false;
+                    return !termino || texto.includes(termino);
+                  }).length === 0 && <tr><td colSpan="6" className="p-6 text-center text-slate-500">No hay compras que coincidan con la búsqueda.</td></tr>}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1719,8 +1810,8 @@ function MainApp() {
                   <input type="number" placeholder="0" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white font-bold text-rose-400" value={formCompra.costo} onChange={e => setFormCompra({...formCompra, costo: e.target.value})} />
                 </div>
                 <div>
-                  <label className="text-slate-400 block mb-1">Precio Venta Sugerido ($)</label>
-                  <input type="number" placeholder="0" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white font-bold text-emerald-400" value={formCompra.precio_venta_sugerido} onChange={e => setFormCompra({...formCompra, precio_venta_sugerido: e.target.value})} />
+                  <label className="text-slate-400 block mb-1">Precio Venta (opcional, editable después) ($)</label>
+                  <input type="number" min="0" step="1" placeholder="Puedes dejarlo vacío" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white font-bold text-emerald-400" value={formCompra.precio_venta_sugerido} onChange={e => setFormCompra({...formCompra, precio_venta_sugerido: e.target.value})} />
                 </div>
               </div>
             </div>
@@ -1728,8 +1819,8 @@ function MainApp() {
             <div className="flex justify-end gap-2 pt-3">
               <button onClick={() => setModalCompra(false)} className="text-xs text-slate-400 px-3 py-1">Cancelar</button>
               <button onClick={async () => {
-                if(!formCompra.proveedor || !formCompra.descripcion_producto || Number(formCompra.costo) <= 0) {
-                  return alert('Por favor completa el proveedor, producto y un costo válido.');
+                if(!formCompra.proveedor.trim() || !formCompra.descripcion_producto.trim() || Number(formCompra.costo) <= 0) {
+                  return alert('Por favor completa el proveedor, producto y un costo válido. El precio de venta es opcional.');
                 }
                 const nombreUsrActual = usuarioSesion ? usuarioSesion.nombre : 'Admin';
                 const res = await agregarCompra(formCompra, nombreUsrActual);
