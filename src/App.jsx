@@ -116,8 +116,7 @@ export function AppProvider({ children }) {
       serie: ordenData.serie || '',
       fallo_reportado: ordenData.fallo_reportado,
       deja_cargador: ordenData.deja_cargador || false,
-      deja_bateria: ordenData.deja_bateria || false,
-      serie_bateria: ordenData.serie_bateria || '',
+      serie_cargador: ordenData.serie_cargador || '',
       repuesto_compra_id: ordenData.repuesto_compra_id ? Number(ordenData.repuesto_compra_id) : null,
       valor_estimado: Number(ordenData.valor_estimado) || 0,
       total_pagar: 0,
@@ -572,8 +571,7 @@ function MainApp() {
     fallo_reportado: '', 
     valor_estimado: 0,
     deja_cargador: false,
-    deja_bateria: false,
-    serie_bateria: '',
+    serie_cargador: '',
     repuesto_compra_id: ''
   });
 
@@ -603,6 +601,11 @@ function MainApp() {
     .toLowerCase()
     .trim();
 
+  const obtenerIdRegistroOrden = (orden) => {
+    const indiceOriginal = ordenes.findIndex(registro => registro.id === orden?.id);
+    return `#${1001 + (ordenes.length - 1 - Math.max(indiceOriginal, 0))}`;
+  };
+
   const ordenesFiltradas = [...ordenes].filter(o => {
     const fechaRegistro = String(o.created_at || o.fecha || '').slice(0, 10);
     if (ordenesFiltroInicio && fechaRegistro && fechaRegistro < ordenesFiltroInicio) return false;
@@ -610,8 +613,7 @@ function MainApp() {
     const termino = normalizarBusqueda(ordenesBusqueda);
     if (!termino) return true;
     const cliente = clientes.find(c => normalizarBusqueda(c.nombre) === normalizarBusqueda(o.cliente_nombre));
-    const indiceOriginal = ordenes.findIndex(registro => registro.id === o.id);
-    const idRegistroConsecutivo = `#${1001 + (ordenes.length - 1 - Math.max(indiceOriginal, 0))}`;
+    const idRegistroConsecutivo = obtenerIdRegistroOrden(o);
     const busquedaId = termino.replace(/^#/, '');
     return normalizarBusqueda(o.cliente_nombre).includes(termino) ||
       normalizarBusqueda(o.cliente_telefono).includes(termino) ||
@@ -848,23 +850,16 @@ function MainApp() {
                     />
                     🔌 ¿Deja Cargador?
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer font-bold">
-                    <input 
-                      type="checkbox" 
-                      className="w-4 h-4 accent-indigo-600 rounded" 
-                      checked={formOrden.deja_bateria} 
-                      onChange={e => setFormOrden({ ...formOrden, deja_bateria: e.target.checked })} 
-                    />
-                    🔋 ¿Deja Batería?
-                  </label>
+
                 </div>
-                {formOrden.deja_bateria && (
+                {formOrden.deja_cargador && (
                   <div>
+                    <label className="block text-xs text-slate-300 mb-1">Número de serie del cargador</label>
                     <input 
-                      placeholder="N° de Serie (S/N) de la Batería" 
+                      placeholder="N° de serie (S/N) del cargador" 
                       className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" 
-                      value={formOrden.serie_bateria} 
-                      onChange={e => setFormOrden({ ...formOrden, serie_bateria: e.target.value })} 
+                      value={formOrden.serie_cargador} 
+                      onChange={e => setFormOrden({ ...formOrden, serie_cargador: e.target.value })} 
                     />
                   </div>
                 )}
@@ -907,7 +902,7 @@ function MainApp() {
                   setTab('ordenes');
                   setClienteSeleccionado(null);
                   setFormNuevoCliente({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
-                  setFormOrden({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0, deja_cargador: false, deja_bateria: false, serie_bateria: '', repuesto_compra_id: '' });
+                  setFormOrden({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0, deja_cargador: false, serie_cargador: '', repuesto_compra_id: '' });
                 }
               }}
               className="w-full bg-indigo-600 hover:bg-indigo-500 font-bold py-3 rounded-xl text-xs transition shadow-lg shadow-indigo-600/30 text-white"
@@ -953,8 +948,7 @@ function MainApp() {
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {ordenesFiltradas.map((o) => {
-                    const indiceOriginal = ordenes.findIndex(registro => registro.id === o.id);
-                    const idRegistroConsecutivo = `#${1001 + (ordenes.length - 1 - Math.max(indiceOriginal, 0))}`;
+                    const idRegistroConsecutivo = obtenerIdRegistroOrden(o);
                     return (
                       <tr key={o.id} className="hover:bg-slate-800/40">
                         <td className="p-3 font-bold text-indigo-400">{idRegistroConsecutivo}</td>
@@ -968,8 +962,7 @@ function MainApp() {
                           <p className="font-bold text-white">{o.tipo_equipo} {o.marca_modelo}</p>
                           <p className="text-[10px] text-slate-400">S/N: {o.serie || 'N/A'}</p>
                           <div className="flex gap-2 mt-1 text-[10px]">
-                            {o.deja_cargador && <span className="bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-800">🔌 Cargador</span>}
-                            {o.deja_bateria && <span className="bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-800">🔋 Batería {o.serie_bateria ? `(${o.serie_bateria})` : ''}</span>}
+                            {o.deja_cargador && <span className="bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-800">🔌 Cargador {o.serie_cargador ? `(${o.serie_cargador})` : '(S/N no registrado)'}</span>}
                           </div>
                         </td>
                         <td className="p-3"><span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">{o.estado}</span></td>
@@ -1340,7 +1333,7 @@ function MainApp() {
                   <span className="font-mono text-[11px] text-amber-400">Código: {clienteSeleccionado.codigo_seguimiento}</span>
                 </div>
                 <p><strong className="text-white">Equipo:</strong> {clienteSeleccionado.tipo_equipo} {clienteSeleccionado.marca_modelo} (S/N: {clienteSeleccionado.serie || 'N/A'})</p>
-                <p className="text-slate-300"><strong>Accesorios:</strong> {clienteSeleccionado.deja_cargador ? '🔌 Cargador ' : ''} {clienteSeleccionado.deja_bateria ? `🔋 Batería (${clienteSeleccionado.serie_bateria || 'S/N'})` : ''} {!clienteSeleccionado.deja_cargador && !clienteSeleccionado.deja_bateria ? 'Ninguno' : ''}</p>
+                <p className="text-slate-300"><strong>Accesorios:</strong> {clienteSeleccionado.deja_cargador ? `🔌 Cargador (${clienteSeleccionado.serie_cargador || 'S/N no registrado'})` : 'Ninguno'}</p>
                 <p><strong className="text-white">Fallo Reportado:</strong> {clienteSeleccionado.fallo_reportado || clienteSeleccionado.falla_reportado}</p>
                 <p><strong className="text-white">Diagnóstico Técnico:</strong> {clienteSeleccionado.diagnostico || 'Equipo en proceso de revisión.'}</p>
                 
@@ -1536,7 +1529,7 @@ function MainApp() {
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3 max-h-[90vh] overflow-y-auto">
             <div className="space-y-1 border-b border-slate-700 pb-3">
-              <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.id}</h3>
+              <h3 className="font-bold text-white text-base">Modificar Orden {obtenerIdRegistroOrden(modalEditOrden)}</h3>
               <p className="text-sm font-semibold text-indigo-300">Cliente: {modalEditOrden.cliente_nombre || 'Sin nombre registrado'}</p>
               <p className="text-xs text-slate-300">Equipo: {modalEditOrden.tipo_equipo || 'Equipo'} {modalEditOrden.marca_modelo || 'Marca/modelo no registrado'}</p>
             </div>
@@ -1665,7 +1658,7 @@ function MainApp() {
                   <div key={o.id} className="p-2.5 bg-slate-800 rounded-xl border border-slate-700 space-y-1">
                     <p className="font-bold text-white">Código: {o.codigo_seguimiento} | Estado: <span className="text-amber-400">{o.estado}</span></p>
                     <p className="text-slate-300">Equipo: {o.tipo_equipo} {o.marca_modelo} (S/N: {o.serie || 'N/A'})</p>
-                    <p className="text-slate-400">Accesorios: {o.deja_cargador ? '🔌 Cargador ' : ''} {o.deja_bateria ? `🔋 Batería (${o.serie_bateria || 'S/N'})` : ''}</p>
+                    <p className="text-slate-400">Accesorios: {o.deja_cargador ? `🔌 Cargador (${o.serie_cargador || 'S/N no registrado'})` : 'Ninguno'}</p>
                     <p className="text-slate-400">Fallo: {o.fallo_reportado || o.falla_reportado}</p>
                     <p className="text-slate-400">Diagnóstico: {o.diagnostico || 'En proceso'}</p>
                   </div>
@@ -2086,7 +2079,7 @@ function MainApp() {
                     <p><strong>Atendió:</strong> {documentoImprimir.data.usuario_creador || 'Sistema'}</p>
                   </div>
                   <p><strong>Equipo:</strong> {documentoImprimir.data.tipo_equipo} {documentoImprimir.data.marca_modelo} (S/N: {documentoImprimir.data.serie || 'N/A'})</p>
-                  <p><strong>Accesorios:</strong> {documentoImprimir.data.deja_cargador ? '🔌 Cargador ' : ''} {documentoImprimir.data.deja_bateria ? `🔋 Batería (${documentoImprimir.data.serie_bateria || 'S/N'})` : ''} {!documentoImprimir.data.deja_cargador && !documentoImprimir.data.deja_bateria ? 'Ninguno' : ''}</p>
+                  <p><strong>Accesorios:</strong> {documentoImprimir.data.deja_cargador ? `🔌 Cargador (${documentoImprimir.data.serie_cargador || 'S/N no registrado'})` : 'Ninguno'}</p>
                   <p><strong>Fallo Reportado:</strong> {documentoImprimir.data.fallo_reportado || documentoImprimir.data.falla_reportado}</p>
                   <p><strong>Diagnóstico Actual:</strong> {documentoImprimir.data.diagnostico || 'En proceso'}</p>
                   
@@ -2246,7 +2239,7 @@ function PortalPublico() {
               <span className="font-mono text-[11px] text-amber-400">Código: {ordenConsultaResult.codigo_seguimiento}</span>
             </div>
             <p className="text-white"><strong>Equipo:</strong> {ordenConsultaResult.tipo_equipo} {ordenConsultaResult.marca_modelo}</p>
-            <p className="text-slate-300"><strong>Accesorios:</strong> {ordenConsultaResult.deja_cargador ? '🔌 Cargador ' : ''} {ordenConsultaResult.deja_bateria ? `🔋 Batería (${ordenConsultaResult.serie_bateria || 'S/N'})` : ''} {!ordenConsultaResult.deja_cargador && !ordenConsultaResult.deja_bateria ? 'Ninguno' : ''}</p>
+            <p className="text-slate-300"><strong>Accesorios:</strong> {ordenConsultaResult.deja_cargador ? `🔌 Cargador (${ordenConsultaResult.serie_cargador || 'S/N no registrado'})` : 'Ninguno'}</p>
             <p className="text-white"><strong>Fallo Reportado:</strong> {ordenConsultaResult.fallo_reportado || ordenConsultaResult.falla_reportado}</p>
             <p className="text-white"><strong>Diagnóstico Técnico:</strong> {ordenConsultaResult.diagnostico || 'Equipo en proceso de revisión.'}</p>
             
