@@ -313,6 +313,51 @@ export function AppProvider({ children }) {
     }
   };
 
+  const cancelarRemision = async (factura, motivo, nombreUsuario) => {
+    if (!factura?.id) {
+      alert('No se encontró el registro de la remisión.');
+      return false;
+    }
+    if (facturaEstaCancelada(factura)) {
+      alert('Esta remisión ya está cancelada.');
+      return false;
+    }
+    const motivoFinal = String(motivo || '').trim();
+    if (!motivoFinal) {
+      alert('Escribe el motivo de la cancelación.');
+      return false;
+    }
+
+    const registroCancelacion = {
+      _tipo: 'cancelacion',
+      cancelada: true,
+      motivo: motivoFinal,
+      usuario: nombreUsuario || 'Usuario',
+      fecha: new Date().toISOString(),
+      numero_factura: factura.numero_factura || ''
+    };
+    const itemsActualizados = [
+      ...(Array.isArray(factura.items) ? factura.items.filter(item => !item || item._tipo !== 'cancelacion') : []),
+      registroCancelacion
+    ];
+
+    const { data: actualizado, error } = await supabase
+      .from('facturas')
+      .update({ items: itemsActualizados })
+      .eq('id', factura.id)
+      .select()
+      .single();
+
+    if (error || !actualizado) {
+      console.error('Error cancelando remisión:', error);
+      alert(`No se pudo cancelar la remisión. ${error?.message || 'Intenta nuevamente.'}`);
+      return false;
+    }
+
+    setFacturas(prev => prev.map(item => item.id === factura.id ? actualizado : item));
+    return actualizado;
+  };
+
   const agregarRol = async (nombreRol, permisosObj) => {
     const { data: insertado, error } = await supabase.from('roles').insert([{ nombre: nombreRol, permisos: permisosObj }]).select();
     if (!error && insertado) setRoles(prev => [...prev, insertado[0]]);
@@ -359,7 +404,7 @@ export function AppProvider({ children }) {
       usuarioSesion, login, logout, rolActual,
       clientes, agregarCliente, modificarCliente,
       ordenes, agregarOrden, actualizarOrden,
-      facturas, remisionarOrden, agregarVentaDirecta,
+      facturas, remisionarOrden, agregarVentaDirecta, cancelarRemision,
       compras, agregarCompra, actualizarPrecioCompra
     }}>
       {children}
@@ -386,6 +431,13 @@ const obtenerGarantiaFactura = (factura) => {
 };
 
 const esRegistroGarantia = (item) => !!item && item._tipo === 'garantia';
+
+// La cancelación se conserva dentro del JSON existente de items para no exigir
+// nuevas columnas en la tabla facturas.
+const obtenerCancelacionFactura = (factura) =>
+  (Array.isArray(factura?.items) ? factura.items : []).find(item => item && item._tipo === 'cancelacion') || null;
+
+const facturaEstaCancelada = (factura) => !!obtenerCancelacionFactura(factura);
 
 // Normaliza teléfonos para enlaces de WhatsApp (wa.me).
 // Los números colombianos de 10 dígitos reciben el indicativo 57.
@@ -466,7 +518,7 @@ function MainApp() {
     empresa, clientes, ordenes, facturas, compras, agregarCompra, actualizarPrecioCompra, roles, agregarRol, actualizarRol, usuarios, agregarUsuario,
     usuarioSesion, logout, rolActual,
     agregarCliente, modificarCliente, agregarOrden, actualizarOrden,
-    remisionarOrden, agregarVentaDirecta, setEmpresa
+    remisionarOrden, agregarVentaDirecta, cancelarRemision, setEmpresa
   } = useApp();
 
   const [tab, setTab] = useState('ordenes');
@@ -478,6 +530,7 @@ function MainApp() {
   const [modalRemisionarOrden, setModalRemisionarOrden] = useState(null);
   const [modalReporteExcel, setModalReporteExcel] = useState(false);
   const [facturaSeleccionada, setFacturaSeleccionada] = useState(null);
+  const [modalCancelarRemision, setModalCancelarRemision] = useState(null);
   const [documentoImprimir, setDocumentoImprimir] = useState(null);
   
   const [ocultarUtilidad, setOcultarUtilidad] = useState(() => {
@@ -541,7 +594,7 @@ function MainApp() {
   const [comprasBusqueda, setComprasBusqueda] = useState('');
   const [mostrarHistorialPortal, setMostrarHistorialPortal] = useState(false);
 
-  const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true } });
+  const [formNuevoRol, setFormNuevoRol] = useState({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, cancelar_remision: false, ver_configuracion: true } });
   const [formUsuarioNuevo, setFormUsuarioNuevo] = useState({ nombre: '', usuario: '', clave: '', rolId: roles[0]?.id || '' });
 
   const normalizarBusqueda = (valor) => String(valor ?? '')
@@ -557,9 +610,14 @@ function MainApp() {
     const termino = normalizarBusqueda(ordenesBusqueda);
     if (!termino) return true;
     const cliente = clientes.find(c => normalizarBusqueda(c.nombre) === normalizarBusqueda(o.cliente_nombre));
+    const indiceOriginal = ordenes.findIndex(registro => registro.id === o.id);
+    const idRegistroConsecutivo = `#${1001 + (ordenes.length - 1 - Math.max(indiceOriginal, 0))}`;
+    const busquedaId = termino.replace(/^#/, '');
     return normalizarBusqueda(o.cliente_nombre).includes(termino) ||
       normalizarBusqueda(o.cliente_telefono).includes(termino) ||
-      normalizarBusqueda(cliente?.cedula).includes(termino);
+      normalizarBusqueda(cliente?.cedula).includes(termino) ||
+      normalizarBusqueda(idRegistroConsecutivo).includes(termino) ||
+      (busquedaId !== '' && String(idRegistroConsecutivo).replace(/^#/, '').includes(busquedaId));
   }).sort((a, b) => {
     const fechaA = new Date(a.created_at || a.fecha || 0).getTime() || 0;
     const fechaB = new Date(b.created_at || b.fecha || 0).getTime() || 0;
@@ -592,7 +650,7 @@ function MainApp() {
       return;
     }
 
-    const msg = `Hola *${orden.cliente_nombre}* 👋\n\nTe saludamos de *${empresa.nombre}*.\n\nTu orden *${idConsecutivoStr}* (*${orden.tipo_equipo} ${orden.marca_modelo}*) se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance, diagnóstico y estado de tu equipo ingresando a nuestra plataforma:\n🔗 https://deluxesyssys3.vercel.app/\n\nUtiliza tu código único: *${orden.codigo_seguimiento}*`;
+    const msg = `Hola *${orden.cliente_nombre}* 👋\n\nTe saludamos de *${empresa.nombre}*.\n\nTu orden *${idConsecutivoStr}* (*${orden.tipo_equipo} ${orden.marca_modelo}*) se encuentra en estado: *${orden.estado}*.\n\nPuedes consultar el avance, diagnóstico y estado de tu equipo ingresando a nuestra plataforma:\n🔗 https://syspcdoctor.vercel.app/portal\n\nUtiliza tu código único: *${orden.codigo_seguimiento}*`;
     const url = `https://wa.me/${telefono}?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
@@ -611,6 +669,7 @@ function MainApp() {
     const { fechaInicio, fechaFin, tipo } = reporteFiltro;
 
     const filtradas = facturas.filter(f => {
+      if (facturaEstaCancelada(f)) return false;
       const fechaF = f.fecha; 
       const cumpleFecha = fechaF >= fechaInicio && fechaF <= fechaFin;
       if (!cumpleFecha) return false;
@@ -669,13 +728,14 @@ function MainApp() {
   const permisosRol = rolActual ? (typeof rolActual.permisos === 'string' ? JSON.parse(rolActual.permisos) : rolActual.permisos) : {};
   
   const permisos = usuarioSesion?.id === 'emergencia' || (rolActual && rolActual.nombre?.toLowerCase().includes('admin'))
-    ? { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true }
+    ? { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, cancelar_remision: usuarioSesion?.id === 'emergencia' ? true : (permisosRol.cancelar_remision ?? false), ver_configuracion: true }
     : {
         crear_orden: permisosRol.crear_orden ?? true,
         editar_diagnostico: permisosRol.editar_diagnostico ?? true,
         ver_clientes: permisosRol.ver_clientes ?? true,
         editar_clientes: permisosRol.editar_clientes ?? true,
         facturar: permisosRol.facturar ?? true,
+        cancelar_remision: permisosRol.cancelar_remision ?? false,
         ver_configuracion: permisosRol.ver_configuracion ?? true,
     };
 
@@ -863,8 +923,8 @@ function MainApp() {
             <h2 className="text-xl font-bold text-white">Seguimiento de Reparaciones</h2>
             <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/80 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end text-xs">
               <div className="lg:col-span-2">
-                <label className="text-slate-400 block mb-1 font-semibold">🔍 Buscar nombre, cédula o celular</label>
-                <input value={ordenesBusqueda} onChange={e => setOrdenesBusqueda(e.target.value)} placeholder="Nombre, cédula o celular..." className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" />
+                <label className="text-slate-400 block mb-1 font-semibold">🔍 Buscar ID de registro, nombre, cédula o celular</label>
+                <input value={ordenesBusqueda} onChange={e => setOrdenesBusqueda(e.target.value)} placeholder="ID (ej. 1001), nombre, cédula o celular..." className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" />
               </div>
               <div>
                 <label className="text-slate-400 block mb-1 font-semibold">Desde</label>
@@ -926,7 +986,7 @@ function MainApp() {
                           {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', presupuesto: o.valor_estimado || 0, totalPagar: o.total_pagar || 0, repuestoCompraId: o.repuesto_compra_id || '', garantiaAplica: obtenerGarantiaOrden(o).aplica, garantiaTiempo: obtenerGarantiaOrden(o).tiempo }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
                           <button onClick={() => enviarWhatsApp(o, idRegistroConsecutivo)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
                           <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o, idConsecutivo: idRegistroConsecutivo })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
-                          {o.estado === 'Reparado / Listo' && permisos.facturar && <button onClick={() => setModalRemisionarOrden({ orden: o, compraId: o.repuesto_compra_id || '', garantiaAplica: obtenerGarantiaOrden(o).aplica, garantiaTiempo: obtenerGarantiaOrden(o).tiempo })} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
+                          {(o.estado === 'Reparado / Listo' || o.estado === 'No tiene reparación') && permisos.facturar && <button onClick={() => setModalRemisionarOrden({ orden: o, compraId: o.repuesto_compra_id || '', garantiaAplica: obtenerGarantiaOrden(o).aplica, garantiaTiempo: obtenerGarantiaOrden(o).tiempo })} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
                         </td>
                       </tr>
                     );
@@ -1120,21 +1180,27 @@ function MainApp() {
 
                       return (
                         <tr key={f.id} className="hover:bg-slate-800/40">
-                          <td className="p-3 font-bold text-indigo-400">{f.numero_factura}</td>
+                          <td className={`p-3 font-bold ${facturaEstaCancelada(f) ? 'text-rose-400 line-through' : 'text-indigo-400'}`}>
+                            {f.numero_factura}
+                            {facturaEstaCancelada(f) && <span className="block no-underline text-[10px] font-black text-rose-400 mt-1">CANCELADA</span>}
+                          </td>
                           <td className="p-3 text-slate-400">{f.fecha}</td>
                           <td className="p-3 font-medium text-white">
                             {f.cliente_nombre}
                             <span className="block text-[10px] text-indigo-300 font-semibold mt-0.5">👤 Vendedor: {f.usuario_creador || 'Sistema'}</span>
                           </td>
-                          <td className="p-3 font-extrabold text-white">$ {totalVenta.toLocaleString('es-CO')}</td>
+                          <td className={`p-3 font-extrabold ${facturaEstaCancelada(f) ? 'text-rose-300 line-through' : 'text-white'}`}>$ {totalVenta.toLocaleString('es-CO')}</td>
                           
                           {!ocultarUtilidad && (
-                            <td className="p-3 font-extrabold text-emerald-400">$ {utilidad.toLocaleString('es-CO')}</td>
+                            <td className={`p-3 font-extrabold ${facturaEstaCancelada(f) ? 'text-slate-500 line-through' : 'text-emerald-400'}`}>$ {utilidad.toLocaleString('es-CO')}</td>
                           )}
 
                           <td className="p-3 text-right space-x-1">
                             <button onClick={() => setFacturaSeleccionada(f)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">👁️ Ver</button>
                             <button onClick={() => setDocumentoImprimir({ tipo: 'FACTURA', data: f })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
+                            {permisos.cancelar_remision && !facturaEstaCancelada(f) && (
+                              <button onClick={() => setModalCancelarRemision({ factura: f, motivo: '' })} className="bg-rose-700 hover:bg-rose-600 text-white px-2 py-1 rounded text-[11px]">⛔ Cancelar</button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1414,6 +1480,16 @@ function MainApp() {
                             /> Remisiones, Ventas y Compras
                           </label>
                           <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={!!currentPerms.cancelar_remision}
+                              onChange={e => {
+                                const updated = { ...currentPerms, cancelar_remision: e.target.checked };
+                                setRoles(roles.map(rol => rol.id === r.id ? { ...rol, permisos: updated } : rol));
+                              }}
+                            /> Cancelar remisiones
+                          </label>
+                          <label className="flex items-center gap-2">
                             <input 
                               type="checkbox" 
                               checked={!!currentPerms.ver_configuracion} 
@@ -1438,9 +1514,10 @@ function MainApp() {
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.editar_diagnostico} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, editar_diagnostico: e.target.checked } })} /> Modificar Diagnóstico</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.ver_clientes} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, ver_clientes: e.target.checked } })} /> Ver Clientes</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.facturar} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, facturar: e.target.checked } })} /> Remisiones, Ventas y Compras</label>
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={!!formNuevoRol.permisos.cancelar_remision} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, cancelar_remision: e.target.checked } })} /> Cancelar remisiones</label>
                   <label className="flex items-center gap-2"><input type="checkbox" checked={formNuevoRol.permisos.ver_configuracion} onChange={e => setFormNuevoRol({ ...formNuevoRol, permisos: { ...formNuevoRol.permisos, ver_configuracion: e.target.checked } })} /> Configuración</label>
                 </div>
-                <button onClick={async () => { if (!formNuevoRol.nombre) return alert('Ingresa un nombre para el rol.'); await agregarRol(formNuevoRol.nombre, formNuevoRol.permisos); alert('Rol creado con éxito'); setFormNuevoRol({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, ver_configuracion: true } }); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Nuevo Rol</button>
+                <button onClick={async () => { if (!formNuevoRol.nombre) return alert('Ingresa un nombre para el rol.'); await agregarRol(formNuevoRol.nombre, formNuevoRol.permisos); alert('Rol creado con éxito'); setFormNuevoRol({ nombre: '', permisos: { crear_orden: true, editar_diagnostico: true, ver_clientes: true, editar_clientes: true, facturar: true, cancelar_remision: false, ver_configuracion: true } }); }} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold">Guardar Nuevo Rol</button>
 
                 <p className="font-bold text-indigo-400 uppercase pt-4 border-t border-slate-700">Crear Usuario y Asignar Rol</p>
                 <div className="grid grid-cols-2 gap-2"><input placeholder="Nombre Completo" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.nombre} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, nombre: e.target.value })} /><input placeholder="Usuario" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white" value={formUsuarioNuevo.usuario} onChange={e => setFormUsuarioNuevo({ ...formUsuarioNuevo, usuario: e.target.value })} /></div>
@@ -1458,7 +1535,16 @@ function MainApp() {
       {modalEditOrden && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3 max-h-[90vh] overflow-y-auto">
-            <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.id}</h3>
+            <div className="space-y-1 border-b border-slate-700 pb-3">
+              <h3 className="font-bold text-white text-base">Modificar Orden #{modalEditOrden.id}</h3>
+              <p className="text-sm font-semibold text-indigo-300">Cliente: {modalEditOrden.cliente_nombre || 'Sin nombre registrado'}</p>
+              <p className="text-xs text-slate-300">Equipo: {modalEditOrden.tipo_equipo || 'Equipo'} {modalEditOrden.marca_modelo || 'Marca/modelo no registrado'}</p>
+            </div>
+
+            <div className="bg-amber-950/30 p-3 rounded-xl border border-amber-700/60 space-y-1">
+              <p className="text-xs font-bold text-amber-300">Fallo reportado al ingresar</p>
+              <p className="text-xs text-slate-100 whitespace-pre-wrap break-words">{modalEditOrden.fallo_reportado || modalEditOrden.falla_reportado || 'No se registró un fallo reportado para esta orden.'}</p>
+            </div>
             
             <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700 max-h-36 overflow-y-auto space-y-1 text-xs">
               <p className="font-bold text-indigo-400">Historial de Avances Anteriores:</p>
@@ -1475,6 +1561,7 @@ function MainApp() {
               <label className="text-[11px] text-slate-400 block mb-1">Estado del Equipo</label>
               <select className="w-full bg-slate-800 p-2 rounded-xl text-xs text-white" value={editOrdForm.estado} onChange={e => setEditOrdForm({ ...editOrdForm, estado: e.target.value })}>
                 <option value="Ingresado">Ingresado</option>
+                <option value="No tiene reparación">No tiene reparación</option>
                 <option value="En Diagnóstico">En Diagnóstico</option>
                 <option value="Esperando Repuesto">Esperando Repuesto</option>
                 <option value="Reparado / Listo">Reparado / Listo</option>
@@ -1866,6 +1953,51 @@ function MainApp() {
         </div>
       )}
 
+      {modalCancelarRemision && (
+        <div className="fixed inset-0 bg-slate-950/85 flex items-center justify-center p-4 z-[70] no-imprimir">
+          <div className="bg-slate-900 border border-rose-800/70 w-full max-w-md p-6 rounded-2xl space-y-4 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="bg-rose-950 text-rose-300 rounded-xl p-3 text-xl">⛔</div>
+              <div>
+                <h3 className="font-black text-white text-lg">Cancelar remisión {modalCancelarRemision.factura.numero_factura}</h3>
+                <p className="text-xs text-slate-400 mt-1">Cliente: {modalCancelarRemision.factura.cliente_nombre}</p>
+              </div>
+            </div>
+            <div className="bg-amber-950/40 border border-amber-700/60 p-3 rounded-xl text-xs text-amber-200">
+              La remisión no se eliminará. Quedará marcada como cancelada y se guardarán el usuario, la fecha y el motivo en su historial.
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">Motivo de cancelación (obligatorio)</label>
+              <textarea
+                value={modalCancelarRemision.motivo}
+                onChange={e => setModalCancelarRemision({ ...modalCancelarRemision, motivo: e.target.value })}
+                placeholder="Ej. Precio incorrecto, datos equivocados, remisión duplicada..."
+                rows={3}
+                className="w-full bg-slate-800 border border-slate-700 focus:border-rose-500 p-3 rounded-xl text-sm text-white outline-none resize-y"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setModalCancelarRemision(null)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-300 hover:bg-slate-800">Volver</button>
+              <button
+                onClick={async () => {
+                  const motivo = String(modalCancelarRemision.motivo || '').trim();
+                  if (!motivo) return alert('Escribe el motivo de la cancelación.');
+                  const usuarioQueCancela = usuarioSesion?.nombre || 'Usuario';
+                  const resultado = await cancelarRemision(modalCancelarRemision.factura, motivo, usuarioQueCancela);
+                  if (resultado) {
+                    setModalCancelarRemision(null);
+                    if (facturaSeleccionada?.id === resultado.id) setFacturaSeleccionada(resultado);
+                    if (documentoImprimir?.data?.id === resultado.id) setDocumentoImprimir({ ...documentoImprimir, data: resultado });
+                    alert(`La remisión ${resultado.numero_factura} quedó cancelada y registrada en su historial.`);
+                  }
+                }}
+                className="bg-rose-700 hover:bg-rose-600 text-white px-4 py-2 rounded-xl text-xs font-black"
+              >Confirmar cancelación</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {facturaSeleccionada && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4">
@@ -1877,6 +2009,17 @@ function MainApp() {
             <p className="text-xs text-slate-300"><strong>Teléfono:</strong> {facturaSeleccionada.cliente_telefono || 'N/A'}</p>
             <p className="text-xs text-slate-300"><strong>Vendedor:</strong> <span className="text-indigo-300 font-semibold">{facturaSeleccionada.usuario_creador || 'Sistema'}</span></p>
             <p className="text-xs text-slate-300"><strong>Tipo Operación:</strong> {facturaSeleccionada.tipo}</p>
+            {facturaEstaCancelada(facturaSeleccionada) && (() => {
+              const cancelacion = obtenerCancelacionFactura(facturaSeleccionada);
+              return (
+                <div className="bg-rose-950/50 border border-rose-700 rounded-xl p-3 space-y-1">
+                  <p className="text-rose-300 font-black text-sm">⛔ REMISIÓN CANCELADA</p>
+                  <p className="text-xs text-slate-200"><strong>Motivo:</strong> {cancelacion.motivo}</p>
+                  <p className="text-xs text-slate-400"><strong>Cancelada por:</strong> {cancelacion.usuario || 'Usuario'}</p>
+                  <p className="text-xs text-slate-400"><strong>Fecha y hora:</strong> {cancelacion.fecha ? new Date(cancelacion.fecha).toLocaleString('es-CO') : 'No registrada'}</p>
+                </div>
+              );
+            })()}
 
             <div className="border border-slate-800 rounded-xl overflow-hidden max-h-40 overflow-y-auto">
               <table className="w-full text-left text-xs text-slate-300">
@@ -1884,7 +2027,7 @@ function MainApp() {
                   <tr><th className="p-2">Ítem / Descripción</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {(facturaSeleccionada.items || []).filter(it => !esRegistroGarantia(it)).map((it, idx) => (
+                  {(facturaSeleccionada.items || []).filter(it => !esRegistroGarantia(it) && (!it || it._tipo !== 'cancelacion')).map((it, idx) => (
                     <tr key={idx}>
                       <td className="p-2 text-[11px]">{it.descripcion}</td>
                       <td className="p-2 text-center text-[11px]">{it.cantidad}</td>
@@ -1911,7 +2054,9 @@ function MainApp() {
         <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-50">
           <div className="bg-white text-slate-900 w-full max-w-xl p-5 rounded-2xl space-y-2 shadow-2xl h-[50vh] max-h-[50vh] overflow-y-auto flex flex-col justify-between border-b-2 border-dashed border-slate-400">
             <div id="seccion-impresion" className="space-y-2 text-[17px]">
-              
+              {documentoImprimir.tipo === 'FACTURA' && facturaEstaCancelada(documentoImprimir.data) && (
+                <div className="border-4 border-rose-700 text-rose-700 text-center font-black text-xl p-2">DOCUMENTO CANCELADO — NO VÁLIDO PARA COBRO</div>
+              )}
               <div className="flex items-center justify-between border-b pb-1 gap-2">
                 <div className="flex items-center gap-2">
                   {empresa.logoUrl && (
@@ -1979,7 +2124,7 @@ function MainApp() {
                       <tr><th className="p-1.5 border">Descripción</th><th className="p-1.5 text-center border">Cant.</th><th className="p-1.5 text-right border">Precio</th></tr>
                     </thead>
                     <tbody>
-                      {(documentoImprimir.data.items || []).filter(it => !esRegistroGarantia(it)).map((it, idx) => (
+                      {(documentoImprimir.data.items || []).filter(it => !esRegistroGarantia(it) && (!it || it._tipo !== 'cancelacion')).map((it, idx) => (
                         <tr key={idx}><td className="p-1.5 border">{it.descripcion}</td><td className="p-1.5 text-center border">{it.cantidad}</td><td className="p-1.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
                       ))}
                     </tbody>
