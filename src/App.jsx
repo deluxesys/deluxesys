@@ -1,4 +1,5 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 
 // ==========================================
@@ -14,6 +15,7 @@ export function AppProvider({ children }) {
   const [ordenes, setOrdenes] = useState([]);
   const [facturas, setFacturas] = useState([]);
   const [compras, setCompras] = useState([]);
+  const [cotizaciones, setCotizaciones] = useState([]);
   const [usuarioSesion, setUsuarioSesion] = useState(() => {
     const saved = localStorage.getItem('techfix_sesion');
     return saved ? JSON.parse(saved) : null;
@@ -54,6 +56,9 @@ export function AppProvider({ children }) {
 
       const resComp = await supabase.from('compras').select('*').order('id', { ascending: false });
       if (resComp.data) setCompras(resComp.data);
+
+      const resCot = await supabase.from('cotizaciones').select('*').order('id', { ascending: false });
+      if (resCot.data) setCotizaciones(resCot.data);
 
     } catch (error) {
       console.error("Error conectando a Supabase:", error);
@@ -404,7 +409,7 @@ export function AppProvider({ children }) {
       clientes, agregarCliente, modificarCliente,
       ordenes, agregarOrden, actualizarOrden,
       facturas, remisionarOrden, agregarVentaDirecta, cancelarRemision,
-      compras, agregarCompra, actualizarPrecioCompra
+      compras, agregarCompra, actualizarPrecioCompra, cotizaciones, setCotizaciones
     }}>
       {children}
     </AppContext.Provider>
@@ -517,10 +522,10 @@ function MainApp() {
     empresa, clientes, ordenes, facturas, compras, agregarCompra, actualizarPrecioCompra, roles, agregarRol, actualizarRol, usuarios, agregarUsuario,
     usuarioSesion, logout, rolActual,
     agregarCliente, modificarCliente, agregarOrden, actualizarOrden,
-    remisionarOrden, agregarVentaDirecta, cancelarRemision, setEmpresa
+    remisionarOrden, agregarVentaDirecta, cancelarRemision, setEmpresa, cotizaciones, setCotizaciones
   } = useApp();
 
-  const [tab, setTab] = useState('ordenes');
+  const [tab, setTab] = useState('dashboard');
   const [modalEditOrden, setModalEditOrden] = useState(null);
   const [modalEditCliente, setModalEditCliente] = useState(null);
   const [verHistorialCliente, setVerHistorialCliente] = useState(null);
@@ -530,6 +535,8 @@ function MainApp() {
   const [modalReporteExcel, setModalReporteExcel] = useState(false);
   const [facturaSeleccionada, setFacturaSeleccionada] = useState(null);
   const [modalCancelarRemision, setModalCancelarRemision] = useState(null);
+  const [modalEditarRemision, setModalEditarRemision] = useState(null);
+  const [scrollRemisionAntesEditar, setScrollRemisionAntesEditar] = useState(0);
   const [documentoImprimir, setDocumentoImprimir] = useState(null);
   
   const [ocultarUtilidad, setOcultarUtilidad] = useState(() => {
@@ -561,6 +568,7 @@ function MainApp() {
   const [tipoClienteOpt, setTipoClienteOpt] = useState('EXISTENTE');
   const [busquedaCliente, setBusquedaCliente] = useState('');
   const [busquedaDirectorioClientes, setBusquedaDirectorioClientes] = useState('');
+  const [importacionClientes, setImportacionClientes] = useState({ visible: false, activa: false, porcentaje: 0, procesados: 0, total: 0, etapa: '' });
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
   const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   
@@ -582,6 +590,15 @@ function MainApp() {
   const [clienteVentaSeleccionado, setClienteVentaSeleccionado] = useState(null);
   const [formNuevoClienteVenta, setFormNuevoClienteVenta] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
   const [itemsVenta, setItemsVenta] = useState([{ descripcion: '', cantidad: 1, precio: 0 }]);
+  const [tipoClienteCot, setTipoClienteCot] = useState('EXISTENTE');
+  const [busquedaClienteCot, setBusquedaClienteCot] = useState('');
+  const [clienteCotSeleccionado, setClienteCotSeleccionado] = useState(null);
+  const [formNuevoClienteCot, setFormNuevoClienteCot] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
+  const [tipoCotizacion, setTipoCotizacion] = useState('INDIVIDUAL');
+  const [opcionesCotizacion, setOpcionesCotizacion] = useState([[{ descripcion: '', cantidad: 1, precio: 0 }]]);
+  const [cotizacionesBusqueda, setCotizacionesBusqueda] = useState('');
+  const [cotizacionActiva, setCotizacionActiva] = useState(null);
+  const [guardandoCotizacion, setGuardandoCotizacion] = useState(false);
   const [compraSeleccionadaVentaId, setCompraSeleccionadaVentaId] = useState('');
   const [garantiaVentaAplica, setGarantiaVentaAplica] = useState(false);
   const [garantiaVentaTiempo, setGarantiaVentaTiempo] = useState('');
@@ -657,14 +674,221 @@ function MainApp() {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  // Exporta los contactos con el mismo orden de columnas que exige la importación:
+  // Nombre | Teléfono | Cédula | Email | Dirección.
+  const exportarClientesExcel = () => {
+    if (!clientes.length) {
+      alert('No hay contactos para exportar.');
+      return;
+    }
+
+    const encabezados = ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección'];
+    const filas = clientes.map(c => [
+      String(c.nombre ?? ''),
+      String(c.telefono ?? ''),
+      String(c.cedula ?? ''),
+      String(c.email ?? ''),
+      String(c.direccion ?? '')
+    ]);
+    const hoja = XLSX.utils.aoa_to_sheet([encabezados, ...filas]);
+    hoja['!cols'] = [
+      { wch: 30 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 32 },
+      { wch: 38 }
+    ];
+    // Mantiene teléfonos y cédulas como texto para conservar ceros iniciales.
+    const rango = XLSX.utils.decode_range(hoja['!ref']);
+    for (let fila = 1; fila <= rango.e.r; fila++) {
+      for (const columna of [1, 2]) {
+        const celda = hoja[XLSX.utils.encode_cell({ r: fila, c: columna })];
+        if (celda) { celda.t = 's'; celda.v = String(celda.v ?? ''); }
+      }
+    }
+
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Contactos');
+    XLSX.writeFile(libro, 'clientes_taller.xlsx', { bookType: 'xlsx' });
+  };
+
+  // Formato Excel antiguo .xls (BIFF8), compatible con la importación del sistema.
+  const exportarClientesXLS = () => {
+    if (!clientes.length) {
+      alert('No hay contactos para exportar.');
+      return;
+    }
+    const encabezados = ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección'];
+    const filas = clientes.map(c => [
+      String(c.nombre ?? ''), String(c.telefono ?? ''), String(c.cedula ?? ''),
+      String(c.email ?? ''), String(c.direccion ?? '')
+    ]);
+    const hoja = XLSX.utils.aoa_to_sheet([encabezados, ...filas]);
+    hoja['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 32 }, { wch: 38 }];
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Contactos');
+    XLSX.writeFile(libro, 'clientes_taller.xls', { bookType: 'biff8' });
+  };
+
+  // También permite descargar CSV, conservando exactamente el mismo orden de columnas.
   const exportarClientesCSV = () => {
-    let csv = 'Nombre,Telefono,Cedula,Email,Direccion\n';
-    clientes.forEach(c => csv += `"${c.nombre}","${c.telefono}","${c.cedula || ''}","${c.email || ''}","${c.direccion || ''}"\n`);
-    const blob = new Blob([csv], { type: 'text/csv' });
+    if (!clientes.length) {
+      alert('No hay contactos para exportar.');
+      return;
+    }
+    const escaparCSV = valor => `"${String(valor ?? '').replace(/"/g, '""')}"`;
+    const filas = [
+      ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección'],
+      ...clientes.map(c => [c.nombre, c.telefono, c.cedula, c.email, c.direccion])
+    ];
+    const csv = '\uFEFF' + filas.map(fila => fila.map(escaparCSV).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `clientes_taller.csv`;
+    a.href = url;
+    a.download = 'clientes_taller.csv';
     a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Importa clientes desde Excel/CSV respetando el orden fijo de columnas:
+  // Nombre | Teléfono | Cédula | Email | Dirección.
+  // Si la cédula ya existe, la fila se omite para evitar duplicados.
+  const importarClientesExcel = async (evento) => {
+    const archivo = evento.target.files?.[0];
+    if (!archivo) return;
+
+    setImportacionClientes({ visible: true, activa: true, porcentaje: 0, procesados: 0, total: 0, etapa: 'Preparando archivo...' });
+
+    try {
+      const extension = archivo.name.split('.').pop()?.toLowerCase();
+      if (!['xlsx', 'xls', 'csv'].includes(extension)) {
+        setImportacionClientes(prev => ({ ...prev, etapa: 'Formato no válido.' }));
+        alert('Formato no válido. Selecciona un archivo Excel (.xlsx, .xls) o CSV.');
+        return;
+      }
+
+      setImportacionClientes(prev => ({ ...prev, etapa: 'Leyendo archivo...' }));
+      const contenido = await archivo.arrayBuffer();
+      const libro = XLSX.read(contenido, { type: 'array', raw: false });
+      const primeraHoja = libro.Sheets[libro.SheetNames[0]];
+      if (!primeraHoja) {
+        setImportacionClientes(prev => ({ ...prev, etapa: 'El archivo no contiene datos.' }));
+        alert('El archivo no contiene una hoja de datos.');
+        return;
+      }
+
+      const filas = XLSX.utils.sheet_to_json(primeraHoja, {
+        header: 1,
+        defval: '',
+        raw: false,
+        blankrows: false
+      });
+
+      if (!filas.length) {
+        setImportacionClientes(prev => ({ ...prev, etapa: 'El archivo está vacío.' }));
+        alert('El archivo está vacío.');
+        return;
+      }
+
+      const normalizarCedulaImportacion = valor => String(valor ?? '')
+        .trim()
+        .replace(/[.\s-]/g, '')
+        .toLowerCase();
+
+      // Reconoce y omite una primera fila de encabezados si existe.
+      const primeraFila = filas[0].slice(0, 5).map(v => String(v ?? '').trim().toLowerCase());
+      const tieneEncabezado = primeraFila.some(v => ['nombre', 'telefono', 'teléfono', 'cedula', 'cédula'].includes(v));
+      const filasDatos = tieneEncabezado ? filas.slice(1) : filas;
+
+      const cedulasExistentes = new Set(
+        clientes
+          .map(c => normalizarCedulaImportacion(c.cedula))
+          .filter(Boolean)
+      );
+      const cedulasArchivo = new Set();
+      const nuevosClientes = [];
+      let filasInvalidas = 0;
+      let duplicados = 0;
+
+      filasDatos.forEach(fila => {
+        const nombre = String(fila[0] ?? '').trim();
+        const telefono = String(fila[1] ?? '').trim();
+        const cedula = String(fila[2] ?? '').trim();
+        const email = String(fila[3] ?? '').trim();
+        const direccion = String(fila[4] ?? '').trim();
+
+        // Nombre y teléfono son los únicos campos obligatorios.
+        if (!nombre || !telefono) {
+          filasInvalidas++;
+          return;
+        }
+
+        const cedulaNormalizada = normalizarCedulaImportacion(cedula);
+        if (cedulaNormalizada && (cedulasExistentes.has(cedulaNormalizada) || cedulasArchivo.has(cedulaNormalizada))) {
+          duplicados++;
+          return;
+        }
+
+        if (cedulaNormalizada) cedulasArchivo.add(cedulaNormalizada);
+        nuevosClientes.push({ nombre, telefono, cedula, email, direccion });
+      });
+
+      if (!nuevosClientes.length) {
+        setImportacionClientes(prev => ({ ...prev, etapa: 'No hay clientes nuevos para importar.' }));
+        alert(`No hay clientes nuevos para importar.\nDuplicados omitidos: ${duplicados}.\nFilas inválidas (sin nombre o teléfono): ${filasInvalidas}.`);
+        return;
+      }
+
+      let clientesInsertados = [];
+      const totalClientes = nuevosClientes.length;
+      const tamanoLote = 25;
+      setImportacionClientes(prev => ({
+        ...prev,
+        total: totalClientes,
+        porcentaje: 0,
+        procesados: 0,
+        etapa: 'Guardando contactos en Supabase...'
+      }));
+
+      // Inserta por lotes pequeños para actualizar la barra durante la subida.
+      for (let i = 0; i < totalClientes; i += tamanoLote) {
+        const lote = nuevosClientes.slice(i, i + tamanoLote);
+        const { data, error } = await supabase.from('clientes').insert(lote).select();
+        if (error) {
+          console.error('Error importando clientes:', error);
+          if (clientesInsertados.length) {
+            setClientes(prev => [...clientesInsertados, ...prev]);
+          }
+          setImportacionClientes(prev => ({
+            ...prev,
+            etapa: `Importación interrumpida: ${clientesInsertados.length} de ${totalClientes} contactos guardados.`
+          }));
+          alert(`La importación se detuvo por un error de Supabase: ${error.message}\nClientes guardados antes del error: ${clientesInsertados.length}.`);
+          return;
+        }
+        if (data?.length) clientesInsertados = [...clientesInsertados, ...data];
+
+        const procesados = Math.min(i + lote.length, totalClientes);
+        setImportacionClientes(prev => ({
+          ...prev,
+          procesados,
+          porcentaje: Math.round((procesados / totalClientes) * 100),
+          etapa: `Guardando contactos en Supabase... ${procesados} de ${totalClientes}`
+        }));
+      }
+
+      setClientes(prev => [...clientesInsertados, ...prev]);
+      setImportacionClientes(prev => ({ ...prev, porcentaje: 100, procesados: clientesInsertados.length, etapa: '¡Importación completada correctamente!' }));
+      alert(`Importación completada.\nClientes importados: ${clientesInsertados.length}.\nDuplicados omitidos por cédula: ${duplicados}.\nFilas inválidas (sin nombre o teléfono): ${filasInvalidas}.`);
+    } catch (error) {
+      console.error('Error leyendo el archivo de clientes:', error);
+      setImportacionClientes(prev => ({ ...prev, etapa: 'Error al procesar el archivo.' }));
+      alert(`No se pudo leer el archivo. Verifica que sea un Excel o CSV válido.\n${error.message || ''}`);
+    } finally {
+      setImportacionClientes(prev => ({ ...prev, activa: false }));
+      evento.target.value = '';
+    }
   };
 
   const generarReporteExcel = () => {
@@ -741,8 +965,159 @@ function MainApp() {
         ver_configuracion: permisosRol.ver_configuracion ?? true,
     };
 
+  // Indicadores del dashboard: se calculan con los registros que ya carga AppProvider.
+  const facturasValidas = facturas.filter(f => !facturaEstaCancelada(f));
+  const totalFacturado = facturasValidas.reduce((suma, f) => suma + (Number(f.total) || 0), 0);
+  // Utilidad estimada registrada: venta menos costo asociado guardado en cada remisión.
+  const utilidadTotalDashboard = facturasValidas.reduce((suma, f) => suma + (Number(f.total || 0) - Number(f.costo_compra || 0)), 0);
+  const contarEstado = (...estados) => ordenes.filter(o => estados.includes(String(o.estado || '').trim())).length;
+  const estadoDashboard = [
+    { label: 'Recibido', count: contarEstado('Ingresado'), color: 'bg-slate-500' },
+    { label: 'En Diagnóstico', count: contarEstado('En Diagnóstico'), color: 'bg-purple-500' },
+    { label: 'Esperando Repuesto', count: contarEstado('Esperando Repuesto'), color: 'bg-amber-400' },
+    { label: 'En Reparación', count: contarEstado('En Reparación'), color: 'bg-blue-500' },
+    { label: 'Listo para Entrega', count: contarEstado('Reparado / Listo', 'No tiene reparación'), color: 'bg-emerald-500' },
+    { label: 'Entregado', count: contarEstado('Entregado / Remisionado'), color: 'bg-slate-400' }
+  ];
+  const totalOrdenesDashboard = ordenes.length;
+  const ordenesEnProcesoDashboard = contarEstado('En Diagnóstico', 'Esperando Repuesto', 'En Reparación');
+  const ordenesListasDashboard = contarEstado('Reparado / Listo', 'No tiene reparación');
+  // El esquema actual no maneja existencias. Este indicador usa órdenes detenidas por repuesto como alerta operativa.
+  const repuestosPorReponerDashboard = contarEstado('Esperando Repuesto');
+  const ingresosRecientesDashboard = [...facturasValidas]
+    .sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) || Number(b.id || 0) - Number(a.id || 0))
+    .slice(0, 5);
+  const formatoCOP = valor => `$${Number(valor || 0).toLocaleString('es-CO')}`;
+
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans">
+    <div className="app-shell flex min-h-screen bg-slate-950 text-slate-100 font-sans">
+      <style>{`
+        /* Identidad visual: elegante, limpia y con movimiento discreto */
+        .app-shell {
+          background:
+            radial-gradient(ellipse at 82% 0%, rgba(8,145,178,.10), transparent 34%),
+            radial-gradient(ellipse at 5% 92%, rgba(99,102,241,.08), transparent 30%),
+            #020617;
+          letter-spacing: .005em;
+        }
+        .app-shell aside {
+          background: rgba(8, 15, 31, .94);
+          border-color: rgba(71, 85, 105, .42);
+          box-shadow: 12px 0 36px rgba(0,0,0,.12);
+          backdrop-filter: blur(16px);
+        }
+        .app-shell aside nav button {
+          position: relative;
+          border: 1px solid transparent;
+          transition: background .2s ease, color .2s ease, border-color .2s ease, transform .2s ease;
+        }
+        .app-shell aside nav button:hover {
+          transform: translateX(3px);
+          background: rgba(30,41,59,.78);
+          border-color: rgba(100,116,139,.22);
+          color: #e2e8f0;
+        }
+        .app-shell aside nav button[class*="bg-indigo-600"] {
+          background: linear-gradient(115deg, rgba(8,145,178,.25), rgba(79,70,229,.24)) !important;
+          border-color: rgba(34,211,238,.28) !important;
+          color: #67e8f9 !important;
+          box-shadow: inset 3px 0 0 #22d3ee, 0 8px 22px rgba(8,145,178,.08) !important;
+        }
+        .app-shell main {
+          animation: appFadeIn .42s ease both;
+        }
+        .app-shell main section,
+        .app-shell main > div > div[class*="bg-slate-900"],
+        .app-shell main > div > div[class*="rounded-2xl"] {
+          transition: border-color .22s ease, box-shadow .22s ease, transform .22s ease;
+        }
+        .app-shell main section {
+          background: linear-gradient(145deg, rgba(22,32,51,.96), rgba(15,23,42,.96));
+          border-color: rgba(71,85,105,.34);
+          box-shadow: 0 12px 32px rgba(0,0,0,.12);
+        }
+        .app-shell main section:hover {
+          border-color: rgba(100,116,139,.48);
+          box-shadow: 0 16px 36px rgba(0,0,0,.18);
+        }
+        .app-shell main button {
+          transition: transform .18s ease, filter .18s ease, box-shadow .18s ease;
+        }
+        .app-shell main button:hover {
+          filter: brightness(1.08);
+        }
+        .app-shell main button:active {
+          transform: scale(.975);
+        }
+        .app-shell input, .app-shell select, .app-shell textarea {
+          transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+        }
+        .app-shell input:focus, .app-shell select:focus, .app-shell textarea:focus {
+          outline: none;
+          border-color: rgba(34,211,238,.68) !important;
+          box-shadow: 0 0 0 3px rgba(34,211,238,.10);
+        }
+        .app-shell table { border-collapse: separate; border-spacing: 0; }
+        .app-shell th {
+          color: #94a3b8;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: .08em;
+        }
+        .app-shell ::-webkit-scrollbar { width: 8px; height: 8px; }
+        .app-shell ::-webkit-scrollbar-track { background: rgba(15,23,42,.55); }
+        .app-shell ::-webkit-scrollbar-thumb { background: #334155; border-radius: 20px; }
+        .app-shell ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        @keyframes appFadeIn {
+          from { opacity: 0; transform: translateY(7px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @media (max-width: 767px) {
+          .app-shell { flex-direction: column; }
+          .app-shell aside {
+            width: 100%;
+            min-height: auto;
+            padding: 14px;
+            gap: 12px;
+            position: relative;
+          }
+          .app-shell aside > div:first-child { gap: 12px; }
+          .app-shell aside nav {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px;
+          }
+          .app-shell aside nav button {
+            padding: 10px !important;
+            font-size: 11px;
+            min-height: 42px;
+          }
+          .app-shell aside nav button:hover { transform: translateY(-1px); }
+          .app-shell aside > div:last-child {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding-top: 10px;
+          }
+          .app-shell aside > div:last-child button { width: auto; padding: 9px 12px; }
+          .app-shell main { padding: 18px 14px !important; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .app-shell *, .app-shell *::before, .app-shell *::after {
+            animation-duration: .01ms !important;
+            transition-duration: .01ms !important;
+            scroll-behavior: auto !important;
+          }
+        }
+        @media print {
+          main.no-imprimir { display: block !important; }
+          body * { visibility: hidden !important; }
+          #documento-cotizacion, #documento-cotizacion * { visibility: visible !important; }
+          #documento-cotizacion { position: absolute; left: 0; top: 0; width: 100%; background: white !important; color: #111827 !important; }
+          .no-imprimir { display: none !important; }
+        }
+      `}</style>
       
       {/* BARRA LATERAL */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 p-5 space-y-6 flex flex-col justify-between shrink-0 no-imprimir">
@@ -760,11 +1135,13 @@ function MainApp() {
           </div>
 
           <nav className="space-y-1.5 text-xs font-semibold">
+            <button onClick={() => setTab('dashboard')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>▦ Dashboard</button>
             {permisos.crear_orden && <button onClick={() => setTab('nueva_orden')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'nueva_orden' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>➕ Orden de Entrada/Taller</button>}
             <button onClick={() => setTab('ordenes')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'ordenes' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🛠️ Reparaciones y Estado</button>
             {permisos.ver_clientes && <button onClick={() => setTab('clientes')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'clientes' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>👥 Directorio de Clientes</button>}
             {permisos.facturar && <button onClick={() => setTab('facturacion')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'facturacion' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🧾 Remisiones y Ventas</button>}
             {permisos.facturar && <button onClick={() => setTab('compras')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'compras' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🛒 Compras y Gastos</button>}
+            <button onClick={() => { setTab('cotizador'); setCotizacionActiva(null); }} className={`w-full text-left p-3 rounded-xl transition ${tab === 'cotizador' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>📝 Cotizador</button>
             <button onClick={() => setTab('portal')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'portal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>🔍 Portal Consulta Cliente</button>
             {permisos.ver_configuracion && <button onClick={() => setTab('config')} className={`w-full text-left p-3 rounded-xl transition ${tab === 'config' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:bg-slate-800'}`}>⚙️ Configuración & Permisos</button>}
           </nav>
@@ -777,6 +1154,86 @@ function MainApp() {
 
       <main className="flex-1 p-8 overflow-y-auto max-w-7xl mx-auto w-full no-imprimir">
         
+        {/* DASHBOARD PRINCIPAL */}
+        {tab === 'dashboard' && (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-extrabold text-white">Panel de Control</h2>
+                <p className="text-xs text-slate-400 mt-1">Resumen operativo del taller en tiempo real</p>
+              </div>
+              {permisos.crear_orden && (
+                <button onClick={() => setTab('nueva_orden')} className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs transition">
+                  + Ingresar Equipo
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div><p className="text-[11px] text-slate-400 uppercase tracking-wide">En proceso</p><p className="text-2xl font-extrabold text-white mt-1">{ordenesEnProcesoDashboard}</p><p className="text-[11px] text-slate-500 mt-1">Diagnóstico / Reparación</p></div>
+                <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 text-2xl">◷</div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div><p className="text-[11px] text-slate-400 uppercase tracking-wide">Listos para entrega</p><p className="text-2xl font-extrabold text-emerald-400 mt-1">{ordenesListasDashboard}</p><p className="text-[11px] text-slate-500 mt-1">Pendiente retiro de cliente</p></div>
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-2xl">✓</div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div><p className="text-[11px] text-slate-400 uppercase tracking-wide">Ingresos facturados</p><p className="text-2xl font-extrabold text-cyan-400 mt-1">{formatoCOP(totalFacturado)}</p><p className="text-[11px] text-slate-500 mt-1">Remisiones no canceladas</p></div>
+                <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-2xl">$</div>
+              </div>
+              <div className="bg-slate-900 border border-emerald-800/60 rounded-2xl p-4 flex items-center justify-between">
+                <div><p className="text-[11px] text-slate-400 uppercase tracking-wide">Utilidad total</p><p className="text-2xl font-extrabold text-emerald-400 mt-1">{ocultarUtilidad ? '••••••' : formatoCOP(utilidadTotalDashboard)}</p><p className="text-[11px] text-slate-500 mt-1">Ventas menos costos registrados</p></div>
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-2xl">📈</div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                <div><p className="text-[11px] text-slate-400 uppercase tracking-wide">Repuestos por reponer</p><p className="text-2xl font-extrabold text-amber-400 mt-1">{repuestosPorReponerDashboard}</p><p className="text-[11px] text-slate-500 mt-1">Órdenes esperando repuesto</p></div>
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-2xl">⚠</div>
+              </div>
+            </div>
+
+            <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-bold text-white">Estado del Taller</h3>
+                <span className="text-cyan-400 text-lg">⌁</span>
+              </div>
+              <div className="space-y-3">
+                {estadoDashboard.map((item) => {
+                  const porcentaje = totalOrdenesDashboard ? Math.round((item.count / totalOrdenesDashboard) * 100) : 0;
+                  return (
+                    <div key={item.label}>
+                      <div className="flex justify-between gap-3 text-[11px] mb-1.5">
+                        <span className="text-slate-300">{item.label}</span>
+                        <span className="text-slate-400 tabular-nums">{item.count} ({porcentaje}%)</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                        <div className={`h-full ${item.color} transition-all`} style={{ width: `${porcentaje}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {!totalOrdenesDashboard && <p className="text-xs text-slate-500 text-center py-2">Aún no hay órdenes registradas.</p>}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-4">Total de órdenes: {totalOrdenesDashboard}. Los porcentajes se calculan sobre todas las órdenes registradas.</p>
+            </section>
+
+            <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div><h3 className="font-bold text-white">Ingresos Recientes</h3><p className="text-[11px] text-slate-500 mt-1">Últimas remisiones registradas, excluyendo canceladas</p></div>
+                <button onClick={() => setTab('facturacion')} className="text-cyan-400 hover:text-cyan-300 text-xs font-bold">Ver todas →</button>
+              </div>
+              <div className="space-y-2">
+                {ingresosRecientesDashboard.length ? ingresosRecientesDashboard.map(f => (
+                  <div key={f.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 last:border-0 pb-2 last:pb-0">
+                    <div><p className="text-xs font-semibold text-white">{f.numero_factura || 'Remisión'}</p><p className="text-[11px] text-slate-400">{f.cliente_nombre || 'Cliente'} · {f.fecha || 'Sin fecha'}</p></div>
+                    <p className="text-sm font-bold text-emerald-400">{formatoCOP(f.total)}</p>
+                  </div>
+                )) : <p className="text-xs text-slate-500">Todavía no hay ingresos facturados.</p>}
+              </div>
+            </section>
+          </div>
+        )}
+
         {/* 1. CREACIÓN DE NUEVA ORDEN */}
         {tab === 'nueva_orden' && permisos.crear_orden && (
           <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-2xl space-y-5">
@@ -993,7 +1450,26 @@ function MainApp() {
         {/* 3. CLIENTES */}
         {tab === 'clientes' && permisos.ver_clientes && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-            <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-white">Directorio de Clientes</h2><div className="space-x-2"><button onClick={exportarClientesCSV} className="bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📊 Exportar</button>{permisos.editar_clientes && <button onClick={() => { setModalEditCliente({}); setFormNuevoCliente({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' }); }} className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold">+ Nuevo Cliente</button>}</div></div>
+            <div className="flex justify-between items-center flex-wrap gap-2"><h2 className="text-xl font-bold text-white">Directorio de Clientes</h2><div className="flex items-center gap-2 flex-wrap"><button onClick={exportarClientesExcel} className="bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📊 Exportar XLSX</button><button onClick={exportarClientesXLS} className="bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📗 Exportar XLS</button><button onClick={exportarClientesCSV} className="bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📄 Exportar CSV</button>{permisos.editar_clientes && <><label className={`bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold ${importacionClientes.activa ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}>📥 {importacionClientes.activa ? 'Importando...' : 'Importar Excel'}<input type="file" accept=".xlsx,.xls,.csv" onChange={importarClientesExcel} className="hidden" disabled={importacionClientes.activa} /></label><button onClick={() => { setModalEditCliente({}); setFormNuevoCliente({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' }); }} className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold">+ Nuevo Cliente</button></>}</div></div>
+            <p className="text-[11px] text-slate-500">Importa archivos Excel o CSV con las columnas en este orden: Nombre, Teléfono, Cédula, Email y Dirección. Los clientes con cédula repetida se omiten.</p>
+            {importacionClientes.visible && (
+              <div className="bg-slate-800/70 border border-slate-700 rounded-xl p-4 space-y-2" role="status" aria-live="polite">
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="font-semibold text-slate-200">{importacionClientes.etapa}</span>
+                  <span className="font-bold text-indigo-300 tabular-nums">{importacionClientes.porcentaje}%</span>
+                </div>
+                <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-700">
+                  <div
+                    className="h-full bg-gradient-to-r from-indigo-600 to-emerald-500 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${importacionClientes.porcentaje}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                  <span>{importacionClientes.procesados.toLocaleString('es-CO')} de {importacionClientes.total.toLocaleString('es-CO')} contactos guardados</span>
+                  {importacionClientes.activa && <span className="text-indigo-300">Procesando...</span>}
+                </div>
+              </div>
+            )}
             {clientes.length === 0 ? (
               <div className="text-center py-12 text-slate-400 text-xs space-y-2">
                 <p className="text-sm font-semibold text-slate-300">No hay clientes registrados en esta empresa todavía.</p>
@@ -1206,6 +1682,46 @@ function MainApp() {
         )}
 
         {/* 5. COMPRAS Y GASTOS */}
+        {tab === 'cotizador' && (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="text-2xl font-black text-white">Cotizador</h2><p className="text-xs text-slate-400 mt-1">Cotizaciones individuales o con varias alternativas para el mismo cliente.</p></div>
+              <button onClick={() => { setCotizacionActiva(null); setClienteCotSeleccionado(null); setTipoClienteCot('EXISTENTE'); setTipoCotizacion('INDIVIDUAL'); setOpcionesCotizacion([[{ descripcion: '', cantidad: 1, precio: 0 }]]); setFormNuevoClienteCot({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' }); }} className="bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 rounded-xl text-xs font-bold">+ Nueva cotización</button>
+            </div>
+            {!cotizacionActiva ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-5">
+                <div className="flex flex-wrap gap-3 items-center">
+                  <input value={cotizacionesBusqueda} onChange={e => setCotizacionesBusqueda(e.target.value)} placeholder="Buscar por número, nombre o teléfono..." className="flex-1 min-w-64 bg-slate-800 border border-slate-700 p-3 rounded-xl text-xs" />
+                  <div className="flex gap-2"><button onClick={() => setTipoCotizacion('INDIVIDUAL')} className={`px-3 py-2 rounded-lg text-xs font-bold ${tipoCotizacion === 'INDIVIDUAL' ? 'bg-indigo-600' : 'bg-slate-800'}`}>Individual</button><button onClick={() => setTipoCotizacion('MULTIPLE')} className={`px-3 py-2 rounded-lg text-xs font-bold ${tipoCotizacion === 'MULTIPLE' ? 'bg-indigo-600' : 'bg-slate-800'}`}>Múltiple</button></div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <h3 className="font-bold text-indigo-300 text-sm">Cliente</h3>
+                    <div className="flex gap-2"><button onClick={() => {setTipoClienteCot('EXISTENTE');setClienteCotSeleccionado(null);}} className={`flex-1 p-2 rounded-lg text-xs font-bold ${tipoClienteCot==='EXISTENTE'?'bg-indigo-600':'bg-slate-800'}`}>Cliente existente</button><button onClick={() => {setTipoClienteCot('NUEVO');setClienteCotSeleccionado(null);}} className={`flex-1 p-2 rounded-lg text-xs font-bold ${tipoClienteCot==='NUEVO'?'bg-indigo-600':'bg-slate-800'}`}>+ Nuevo cliente</button></div>
+                    {tipoClienteCot === 'EXISTENTE' ? <>
+                      {!clienteCotSeleccionado ? <><input value={busquedaClienteCot} onChange={e=>setBusquedaClienteCot(e.target.value)} placeholder="Buscar cliente por nombre, cédula o teléfono" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><div className="max-h-40 overflow-auto border border-slate-800 rounded-lg">{clientes.filter(c=>normalizarBusqueda(`${c.nombre} ${c.telefono} ${c.cedula}`).includes(normalizarBusqueda(busquedaClienteCot))).slice(0,30).map(c=><button key={c.id} onClick={()=>{setClienteCotSeleccionado(c);setBusquedaClienteCot('');}} className="block w-full text-left p-2.5 text-xs hover:bg-slate-800 border-b border-slate-800">{c.nombre} · {c.telefono || 'Sin teléfono'} {c.cedula ? `· CC ${c.cedula}` : ''}</button>)}</div></> : <div className="bg-slate-800 p-3 rounded-xl text-xs flex justify-between gap-2"><div><b>{clienteCotSeleccionado.nombre}</b><p className="text-slate-400">{clienteCotSeleccionado.telefono}</p></div><button onClick={()=>setClienteCotSeleccionado(null)} className="text-indigo-300">Cambiar</button></div>}
+                    </> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><input value={formNuevoClienteCot.nombre} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,nombre:e.target.value})} placeholder="Nombre completo *" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.telefono} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,telefono:e.target.value})} placeholder="Teléfono / WhatsApp *" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.cedula} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,cedula:e.target.value})} placeholder="Cédula" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.email} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,email:e.target.value})} placeholder="Correo" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.direccion} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,direccion:e.target.value})} placeholder="Dirección" className="sm:col-span-2 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/></div>}
+                  </div>
+                  <div className="space-y-2"><h3 className="font-bold text-indigo-300 text-sm">Datos de cotización</h3><p className="text-xs text-slate-400">Número consecutivo independiente: lo genera el sistema al guardar. Cada opción puede contener varios productos o servicios y sus cantidades y precios.</p><label className="block text-xs text-slate-400">Vigencia (opcional)</label><input id="vigenciaCotizacion" type="date" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/></div>
+                </div>
+                <div className="space-y-4">
+                  {(tipoCotizacion==='INDIVIDUAL' ? opcionesCotizacion.slice(0,1) : opcionesCotizacion).map((items,oi)=><div key={oi} className="border border-slate-700 rounded-xl p-4 space-y-3"><div className="flex items-center justify-between"><h3 className="font-bold text-white">{tipoCotizacion==='MULTIPLE'?`Opción ${oi+1}`:'Detalle de cotización'}</h3><button onClick={()=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi? [...op,{descripcion:'',cantidad:1,precio:0}]:op))} className="text-indigo-300 text-xs font-bold">+ Agregar producto/servicio</button></div>{items.map((it,ii)=><div key={ii} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center"><input value={it.descripcion} onChange={e=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi?op.map((x,j)=>j===ii?{...x,descripcion:e.target.value}:x):op))} placeholder="Descripción del producto o servicio *" className="sm:col-span-6 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input type="number" min="1" value={it.cantidad} onChange={e=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi?op.map((x,j)=>j===ii?{...x,cantidad:Math.max(1,Number(e.target.value)||1)}:x):op))} placeholder="Cant." className="sm:col-span-2 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input type="number" min="0" value={it.precio} onChange={e=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi?op.map((x,j)=>j===ii?{...x,precio:Math.max(0,Number(e.target.value)||0)}:x):op))} placeholder="Precio unitario" className="sm:col-span-3 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><button onClick={()=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi?op.filter((_,j)=>j!==ii).length?op.filter((_,j)=>j!==ii):[{descripcion:'',cantidad:1,precio:0}]:op))} className="sm:col-span-1 text-rose-400 text-xs">✕</button><div className="sm:col-span-12 text-right text-xs text-slate-400">Subtotal: $ {(Number(it.cantidad||0)*Number(it.precio||0)).toLocaleString('es-CO')}</div></div>)}<div className="text-right text-emerald-300 font-black">Total opción: $ {items.reduce((sum,it)=>sum+Number(it.cantidad||0)*Number(it.precio||0),0).toLocaleString('es-CO')}</div></div>)}
+                  {tipoCotizacion==='MULTIPLE' && <button onClick={()=>setOpcionesCotizacion(prev=>[...prev,[{descripcion:'',cantidad:1,precio:0}]])} className="border border-dashed border-indigo-500 text-indigo-300 rounded-xl p-3 w-full text-xs font-bold">+ Agregar otra opción a esta cotización</button>}
+                </div>
+                <div className="flex justify-end"><button disabled={guardandoCotizacion} onClick={async()=>{let cli=clienteCotSeleccionado;if(tipoClienteCot==='NUEVO'){if(!formNuevoClienteCot.nombre.trim()||!formNuevoClienteCot.telefono.trim()){alert('Ingresa nombre y teléfono del nuevo cliente.');return;}cli=await agregarCliente({nombre:formNuevoClienteCot.nombre.trim(),telefono:formNuevoClienteCot.telefono.trim(),cedula:formNuevoClienteCot.cedula.trim(),email:formNuevoClienteCot.email.trim(),direccion:formNuevoClienteCot.direccion.trim()});if(!cli)return;}if(!cli){alert('Selecciona un cliente o registra uno nuevo.');return;}const ops=(tipoCotizacion==='INDIVIDUAL' ? opcionesCotizacion.slice(0,1) : opcionesCotizacion).map((items,i)=>({nombre:`Opción ${i+1}`,items:items.filter(x=>x.descripcion.trim()).map(x=>({...x,cantidad:Number(x.cantidad)||1,precio:Number(x.precio)||0,subtotal:(Number(x.cantidad)||1)*(Number(x.precio)||0)})),total:items.filter(x=>x.descripcion.trim()).reduce((sum,x)=>sum+(Number(x.cantidad)||1)*(Number(x.precio)||0),0)}));if(ops.some(o=>!o.items.length)){alert('Cada opción debe tener al menos un producto o servicio con descripción.');return;}setGuardandoCotizacion(true);try{const maxNum=cotizaciones.reduce((m,c)=>Math.max(m,Number(String(c.numero_cotizacion||'').replace(/\D/g,''))||0),0);const numero=`COT-${String(maxNum+1).padStart(5,'0')}`;const nueva={numero_cotizacion:numero,cliente_id:cli.id,cliente_nombre:cli.nombre,cliente_telefono:cli.telefono,cliente_cedula:cli.cedula||'',cliente_email:cli.email||'',cliente_direccion:cli.direccion||'',tipo:tipoCotizacion,opciones:ops,vigencia:document.getElementById('vigenciaCotizacion')?.value||null,usuario_creador:usuarioSesion?.nombre||'Sistema',fecha:new Date().toISOString()};const {data,error}=await supabase.from('cotizaciones').insert([nueva]).select();if(error)throw error;setCotizaciones(prev=>[data[0],...prev]);setCotizacionActiva(data[0]);alert(`Cotización ${numero} guardada correctamente.`);}catch(err){console.error(err);alert('No se pudo guardar la cotización. Verifica que hayas creado la tabla cotizaciones en Supabase y sus permisos.');}finally{setGuardandoCotizacion(false);}}} className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-5 py-3 rounded-xl text-xs font-black">{guardandoCotizacion?'Guardando...':'Guardar cotización'}</button></div>
+              </div>
+            ) : (
+              <div className="bg-white text-slate-900 rounded-2xl p-8 max-w-4xl mx-auto space-y-5" id="documento-cotizacion">
+                <div className="flex justify-between gap-4 border-b pb-4"><div>{empresa.logoUrl&&<img src={empresa.logoUrl} alt="Logo" className="w-20 h-20 object-contain"/>}<h2 className="text-2xl font-black">{empresa.nombre}</h2><p>{empresa.direccion} · {empresa.telefono}</p></div><div className="text-right"><h3 className="text-xl font-black">COTIZACIÓN</h3><p className="font-bold">{cotizacionActiva.numero_cotizacion}</p><p>{String(cotizacionActiva.fecha||'').slice(0,10)}</p><p>{cotizacionActiva.tipo==='MULTIPLE'?'Cotización múltiple':'Cotización individual'}</p></div></div>
+                <div><p><b>Cliente:</b> {cotizacionActiva.cliente_nombre}</p><p><b>Teléfono:</b> {cotizacionActiva.cliente_telefono}</p>{cotizacionActiva.cliente_cedula&&<p><b>Cédula:</b> {cotizacionActiva.cliente_cedula}</p>}{cotizacionActiva.vigencia&&<p><b>Vigente hasta:</b> {cotizacionActiva.vigencia}</p>}</div>
+                {(cotizacionActiva.opciones||[]).map((op,i)=><div key={i} className="border rounded-lg p-4"><h3 className="font-black text-lg mb-2">{cotizacionActiva.tipo==='MULTIPLE'?op.nombre:'Detalle de cotización'}</h3><table className="w-full text-sm border-collapse"><thead><tr className="bg-slate-100"><th className="text-left p-2 border">Descripción</th><th className="p-2 border">Cant.</th><th className="text-right p-2 border">Valor unitario</th><th className="text-right p-2 border">Subtotal</th></tr></thead><tbody>{(op.items||[]).map((it,j)=><tr key={j}><td className="p-2 border">{it.descripcion}</td><td className="p-2 border text-center">{it.cantidad}</td><td className="p-2 border text-right">$ {Number(it.precio).toLocaleString('es-CO')}</td><td className="p-2 border text-right">$ {Number(it.subtotal).toLocaleString('es-CO')}</td></tr>)}</tbody></table><p className="text-right font-black text-lg mt-3">Total: $ {Number(op.total||0).toLocaleString('es-CO')}</p></div>)}
+                <div className="flex flex-wrap justify-end gap-2 no-imprimir"><button onClick={()=>setCotizacionActiva(null)} className="bg-slate-200 px-3 py-2 rounded-lg text-xs font-bold">Volver al historial</button><button onClick={()=>window.print()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Imprimir / Guardar PDF</button><button onClick={()=>{const tel=normalizarTelefonoWhatsApp(cotizacionActiva.cliente_telefono);if(!tel){alert('El cliente no tiene teléfono válido para WhatsApp.');return;}const resumen=(cotizacionActiva.opciones||[]).map((op,i)=>`${cotizacionActiva.tipo==='MULTIPLE'?op.nombre:'Total'}: $ ${Number(op.total||0).toLocaleString('es-CO')}`).join('\n');const msg=`Hola ${cotizacionActiva.cliente_nombre}, te compartimos la cotización ${cotizacionActiva.numero_cotizacion} de ${empresa.nombre}.\n${resumen}\nPuedes solicitar el documento completo por este medio.`;window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`,'_blank','noopener,noreferrer');}} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Enviar por WhatsApp</button></div>
+              </div>
+            )}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5"><h3 className="font-bold mb-3">Historial de cotizaciones</h3><div className="space-y-2">{cotizaciones.filter(c=>normalizarBusqueda(`${c.numero_cotizacion} ${c.cliente_nombre} ${c.cliente_telefono}`).includes(normalizarBusqueda(cotizacionesBusqueda))).map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 border border-slate-800 rounded-xl p-3"><div><p className="font-bold text-sm">{c.numero_cotizacion} · {c.cliente_nombre}</p><p className="text-xs text-slate-400">{c.cliente_telefono} · {c.tipo==='MULTIPLE'?'Múltiple':'Individual'} · {String(c.fecha||c.created_at||'').slice(0,10)}</p></div><div className="flex items-center gap-2"><span className="text-emerald-300 font-bold text-xs">{(c.opciones||[]).length} opción(es)</span><button onClick={()=>setCotizacionActiva(c)} className="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-lg text-xs">Ver / Imprimir</button></div></div>)}{cotizaciones.length===0&&<p className="text-xs text-slate-500">Aún no hay cotizaciones guardadas.</p>}</div></div>
+          </div>
+        )}
+
         {tab === 'compras' && permisos.facturar && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
             <div className="flex justify-between items-center gap-3 flex-wrap">
@@ -1991,6 +2507,64 @@ function MainApp() {
         </div>
       )}
 
+      {modalEditarRemision && (
+        <div className="fixed inset-0 bg-slate-950/90 flex items-center justify-center p-4 z-[80] no-imprimir">
+          <div className="bg-slate-900 border border-amber-700/60 w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 rounded-2xl space-y-4 shadow-2xl">
+            <div>
+              <h3 className="text-lg font-black text-white">Modificar remisión {modalEditarRemision.factura.numero_factura}</h3>
+              <p className="text-xs text-amber-300 mt-1">Cambio excepcional. Se conservará un historial interno de la modificación.</p>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center"><label className="text-xs font-bold text-slate-300">Ítems de la remisión</label><button onClick={() => setModalEditarRemision(p => ({...p,items:[...p.items,{descripcion:'',cantidad:1,precio:0}]}))} className="text-xs text-cyan-300 font-bold">+ Agregar ítem</button></div>
+              {modalEditarRemision.items.map((it,i) => <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                <input value={it.descripcion} onChange={e=>setModalEditarRemision(p=>({...p,items:p.items.map((x,j)=>j===i?{...x,descripcion:e.target.value}:x)}))} placeholder="Descripción" className="col-span-6 bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white"/>
+                <input type="number" min="1" value={it.cantidad} onChange={e=>setModalEditarRemision(p=>({...p,items:p.items.map((x,j)=>j===i?{...x,cantidad:Math.max(1,Number(e.target.value)||1)}:x)}))} className="col-span-2 bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white"/>
+                <input type="number" min="0" value={it.precio} onChange={e=>setModalEditarRemision(p=>({...p,items:p.items.map((x,j)=>j===i?{...x,precio:Math.max(0,Number(e.target.value)||0)}:x)}))} className="col-span-3 bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white"/>
+                <button onClick={()=>setModalEditarRemision(p=>({...p,items:p.items.filter((_,j)=>j!==i)}))} className="col-span-1 text-rose-400">✕</button>
+              </div>)}
+              <label className="block text-xs text-slate-300">Costo asociado (para cálculo de utilidad)</label>
+              <input type="number" min="0" value={modalEditarRemision.costo} onChange={e=>setModalEditarRemision(p=>({...p,costo:Math.max(0,Number(e.target.value)||0)}))} className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs text-white"/>
+              <p className="text-right text-sm font-black text-emerald-300">Nuevo total: {formatoCOP(modalEditarRemision.items.reduce((sum,it)=>sum+(Number(it.cantidad)||0)*(Number(it.precio)||0),0))}</p>
+            </div>
+            <div className="border-t border-slate-700 pt-3 space-y-3">
+              <div><label className="block text-xs font-bold text-slate-300 mb-1">Contraseña del usuario que autoriza</label><input type="password" value={modalEditarRemision.password} onChange={e=>setModalEditarRemision(p=>({...p,password:e.target.value}))} className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs text-white" placeholder="Confirma tu contraseña"/></div>
+              <div><label className="block text-xs font-bold text-slate-300 mb-1">Motivo interno del cambio (obligatorio)</label><textarea rows={3} value={modalEditarRemision.motivo} onChange={e=>setModalEditarRemision(p=>({...p,motivo:e.target.value}))} className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs text-white" placeholder="Explica por qué se modifica esta remisión. No se imprime."/></div>
+            </div>
+            <div className="flex justify-end gap-2"><button onClick={()=>setModalEditarRemision(null)} className="px-4 py-2 rounded-xl text-xs text-slate-300">Cancelar</button><button onClick={async()=>{
+              const m=modalEditarRemision; const motivo=String(m.motivo||'').trim();
+              if(!m.password) return alert('Ingresa la contraseña para autorizar el cambio.');
+              if(!motivo) return alert('El motivo interno es obligatorio.');
+              const usuarioValido=usuarios.find(u=>String(u.usuario||'').toLowerCase()===String(usuarioSesion?.usuario||'').toLowerCase() && u.clave===m.password);
+              const emergenciaValida=usuarioSesion?.id==='emergencia' && m.password==='admin123' && usuarios.length===0;
+              if(!usuarioValido && !emergenciaValida) return alert('Contraseña incorrecta. No se realizaron cambios.');
+              if(!m.items.length || m.items.some(it=>!it.descripcion.trim())) return alert('Debe existir al menos un ítem y todos deben tener descripción.');
+              const itemsPrevios=(Array.isArray(m.factura.items)?m.factura.items:[]).filter(it=>it && it._tipo);
+              const itemsNuevos=[...m.items, ...itemsPrevios, { _tipo:'auditoria_edicion', motivo, usuario:usuarioSesion?.nombre||'Usuario', fecha:new Date().toISOString(), total_anterior:Number(m.factura.total)||0, costo_anterior:Number(m.factura.costo_compra)||0 }];
+              const total= m.items.reduce((sum,it)=>sum+(Number(it.cantidad)||0)*(Number(it.precio)||0),0);
+              const {data,error}=await supabase.from('facturas').update({items:itemsNuevos,total,costo_compra:Number(m.costo)||0}).eq('id',m.factura.id).select().single();
+              if(error||!data){console.error(error);return alert('No se pudo guardar la modificación: '+(error?.message||'Error de Supabase'));}
+              // Recargar la lista completa para reflejar también cualquier dato calculado/actualizado en Supabase.
+              const { data: facturasActualizadas, error: errorRecarga } = await supabase
+                .from('facturas').select('*').order('id', { ascending: false });
+              if (errorRecarga) {
+                console.error('La remisión se guardó, pero no se pudo recargar la lista:', errorRecarga);
+                setFacturas(prev => prev.map(f => f.id === data.id ? data : f));
+              } else if (facturasActualizadas) {
+                setFacturas(facturasActualizadas);
+              }
+              setModalEditarRemision(null);
+              setFacturaSeleccionada(null);
+              // El modal se desmonta y la lista queda visible en la misma posición.
+              requestAnimationFrame(() => {
+                window.scrollTo({ top: scrollRemisionAntesEditar, behavior: 'auto' });
+                alert('¡Cambio realizado con éxito! La remisión fue actualizada.');
+                requestAnimationFrame(() => window.scrollTo({ top: scrollRemisionAntesEditar, behavior: 'auto' }));
+              });
+            }} className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-xl text-xs font-black text-white">Validar y guardar cambios</button></div>
+          </div>
+        </div>
+      )}
+
       {facturaSeleccionada && (
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-4">
@@ -2020,7 +2594,7 @@ function MainApp() {
                   <tr><th className="p-2">Ítem / Descripción</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio</th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
-                  {(facturaSeleccionada.items || []).filter(it => !esRegistroGarantia(it) && (!it || it._tipo !== 'cancelacion')).map((it, idx) => (
+                  {(facturaSeleccionada.items || []).filter(it => it && !it._tipo).map((it, idx) => (
                     <tr key={idx}>
                       <td className="p-2 text-[11px]">{it.descripcion}</td>
                       <td className="p-2 text-center text-[11px]">{it.cantidad}</td>
@@ -2036,7 +2610,18 @@ function MainApp() {
               <span className="font-extrabold text-emerald-400 text-base">$ {(facturaSeleccionada.total || 0).toLocaleString('es-CO')}</span>
             </div>
 
+            { !facturaEstaCancelada(facturaSeleccionada) && (
+              <div className="bg-amber-950/30 border border-amber-700/40 rounded-xl p-3 text-[11px] text-amber-200">
+                Si necesitas corregir una remisión ya emitida, el sistema solicitará contraseña y motivo. El motivo quedará como registro interno y no aparecerá en el documento del cliente.
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-2">
+              {!facturaEstaCancelada(facturaSeleccionada) && <button onClick={() => {
+                setScrollRemisionAntesEditar(window.scrollY || window.pageYOffset || 0);
+                const items = (facturaSeleccionada.items || []).filter(it => it && !it._tipo);
+                setModalEditarRemision({ factura: facturaSeleccionada, items: items.map(it => ({ descripcion: it.descripcion || '', cantidad: Number(it.cantidad) || 1, precio: Number(it.precio) || 0 })), costo: Number(facturaSeleccionada.costo_compra) || 0, password: '', motivo: '' });
+                setFacturaSeleccionada(null);
+              }} className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-1.5 rounded-xl text-xs font-bold">✏️ Modificar remisión</button>}
               <button onClick={() => setFacturaSeleccionada(null)} className="bg-slate-800 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Cerrar</button>
             </div>
           </div>
@@ -2117,7 +2702,7 @@ function MainApp() {
                       <tr><th className="p-1.5 border">Descripción</th><th className="p-1.5 text-center border">Cant.</th><th className="p-1.5 text-right border">Precio</th></tr>
                     </thead>
                     <tbody>
-                      {(documentoImprimir.data.items || []).filter(it => !esRegistroGarantia(it) && (!it || it._tipo !== 'cancelacion')).map((it, idx) => (
+                      {(documentoImprimir.data.items || []).filter(it => it && !it._tipo).map((it, idx) => (
                         <tr key={idx}><td className="p-1.5 border">{it.descripcion}</td><td className="p-1.5 text-center border">{it.cantidad}</td><td className="p-1.5 text-right border">$ {(it.precio || 0).toLocaleString('es-CO')}</td></tr>
                       ))}
                     </tbody>
