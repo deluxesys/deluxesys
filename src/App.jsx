@@ -2,6 +2,156 @@ import React, { useState, useEffect, createContext, useContext } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 
+
+// ==========================================
+// FONDO ANIMADO INTERACTIVO (CANVAS 2D)
+// ==========================================
+function InteractiveBackground() {
+  const canvasRef = React.useRef(null);
+
+  useEffect(() => {
+    // Desactivar la animación en dispositivos táctiles para ahorrar batería.
+    if ("ontouchstart" in window) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animationFrameId;
+    let particles = [];
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+
+    const MAX_PARTICLES = 70;
+    const CONNECTION_DISTANCE = 130;
+    const MOUSE_RADIUS = 160;
+
+    const mouse = { x: null, y: null };
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const createParticles = () => {
+      const count = Math.min(
+        MAX_PARTICLES,
+        Math.max(18, Math.floor((width * height) / 18000))
+      );
+
+      particles = Array.from({ length: count }, () => ({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.5,
+        vy: (Math.random() - 0.5) * 0.5,
+        radius: Math.random() * 1.8 + 1,
+      }));
+    };
+
+    const resizeCanvas = () => {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width;
+      canvas.height = height;
+      createParticles();
+    };
+
+    const handleMouseMove = (event) => {
+      mouse.x = event.clientX;
+      mouse.y = event.clientY;
+    };
+
+    const handleMouseOut = (event) => {
+      // Solo se reinicia al salir de la ventana, no al pasar entre elementos.
+      if (!event.relatedTarget) {
+        mouse.x = null;
+        mouse.y = null;
+      }
+    };
+
+    const drawParticles = () => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, width, height);
+
+      for (const particle of particles) {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+
+        if (particle.x < 0 || particle.x > width) particle.vx *= -1;
+        if (particle.y < 0 || particle.y > height) particle.vy *= -1;
+
+        if (mouse.x !== null && mouse.y !== null) {
+          const dx = particle.x - mouse.x;
+          const dy = particle.y - mouse.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < MOUSE_RADIUS && distance > 0) {
+            const force = (MOUSE_RADIUS - distance) / MOUSE_RADIUS;
+            particle.x += (dx / distance) * force * 1.8;
+            particle.y += (dy / distance) * force * 1.8;
+          }
+        }
+
+        ctx.beginPath();
+        ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#6366f1";
+        ctx.fill();
+      }
+
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < CONNECTION_DISTANCE) {
+            const opacity = 1 - distance / CONNECTION_DISTANCE;
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(99, 102, 241, ${opacity * 0.35})`;
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(drawParticles);
+    };
+
+    createParticles();
+    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseout", handleMouseOut);
+    drawParticles();
+
+    return () => {
+      window.removeEventListener("resize", resizeCanvas);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseout", handleMouseOut);
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden="true"
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        zIndex: -1,
+        pointerEvents: "none",
+        backgroundColor: "#0f172a",
+      }}
+    />
+  );
+}
+
 // ==========================================
 // CONTEXTO DE DATOS Y CONEXIÓN A SUPABASE
 // ==========================================
@@ -92,7 +242,8 @@ export function AppProvider({ children }) {
   const generarCodigoSeguimiento = () => 'TK-' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
   const agregarCliente = async (data) => {
-    const { data: insertado, error } = await supabase.from('clientes').insert([data]).select();
+    const datosCliente = { ...data, telefono_secundario: String(data.telefono_secundario || '').trim() || null };
+    const { data: insertado, error } = await supabase.from('clientes').insert([datosCliente]).select();
     if (error || !insertado) {
       alert('Error guardando cliente.');
       return null;
@@ -102,11 +253,15 @@ export function AppProvider({ children }) {
   };
 
   const modificarCliente = async (id, data) => {
-    const { error } = await supabase.from('clientes').update(data).eq('id', id);
+    const datosCliente = { ...data, telefono_secundario: String(data.telefono_secundario || '').trim() || null };
+    const { error } = await supabase.from('clientes').update(datosCliente).eq('id', id);
     if (!error) {
-      setClientes(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+      setClientes(prev => prev.map(c => c.id === id ? { ...c, ...datosCliente } : c));
+      return true;
     } else {
-      alert('Error actualizando cliente.');
+      console.error('Error actualizando cliente:', error);
+      alert(`Error actualizando cliente: ${error.message || 'Error desconocido'}`);
+      return false;
     }
   };
 
@@ -140,7 +295,7 @@ export function AppProvider({ children }) {
     return insertada[0];
   };
 
-  const actualizarOrden = async (id, estado, obs, diag, presupuesto, totalPagar, repuestoCompraId = null, remisionAsociada = null, garantiaAplica = undefined, garantiaTiempo = undefined) => {
+  const actualizarOrden = async (id, estado, obs, diag, presupuesto, totalPagar, repuestoCompraId = null, remisionAsociada = null, garantiaAplica = undefined, garantiaTiempo = undefined, datosEdicion = null) => {
     const ordenObj = ordenes.find(o => o.id === id);
     if (!ordenObj) return;
 
@@ -165,14 +320,18 @@ export function AppProvider({ children }) {
       total_pagar: totalPagar !== undefined ? Number(totalPagar) : (ordenObj.total_pagar || 0),
       repuesto_compra_id: repuestoCompraId !== undefined ? (repuestoCompraId ? Number(repuestoCompraId) : null) : ordenObj.repuesto_compra_id,
       observaciones: obsArr,
-      ...(remisionAsociada ? { numero_factura_asociada: remisionAsociada } : {})
+      ...(remisionAsociada ? { numero_factura_asociada: remisionAsociada } : {}),
+      ...(datosEdicion && typeof datosEdicion === 'object' ? datosEdicion : {})
     };
 
     const { error } = await supabase.from('ordenes').update(updateData).eq('id', id);
     if (!error) {
       setOrdenes(prev => prev.map(o => o.id === id ? { ...o, ...updateData } : o));
+      return true;
     } else {
-      alert('Error al actualizar la orden en Supabase.');
+      console.error('Error al actualizar la orden en Supabase:', error);
+      alert(`Error al actualizar la orden: ${error.message || 'Error desconocido'}`);
+      return false;
     }
   };
 
@@ -488,7 +647,7 @@ function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-transparent flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-full max-w-md space-y-6">
         <div className="text-center space-y-3">
           {empresa.logoUrl ? (
@@ -527,6 +686,7 @@ function MainApp() {
 
   const [tab, setTab] = useState('dashboard');
   const [modalEditOrden, setModalEditOrden] = useState(null);
+  const [modalEditOrdenModo, setModalEditOrdenModo] = useState('diagnostico'); // 'diagnostico' conserva el flujo habitual; 'editar' corrige datos de ingreso
   const [modalEditCliente, setModalEditCliente] = useState(null);
   const [verHistorialCliente, setVerHistorialCliente] = useState(null);
   const [modalVenta, setModalVenta] = useState(false);
@@ -559,6 +719,7 @@ function MainApp() {
   // Estados nuevos para búsqueda y ordenamiento por fecha en Remisiones y Ventas
   const [facturasFiltroInicio, setFacturasFiltroInicio] = useState('');
   const [facturasFiltroFin, setFacturasFiltroFin] = useState('');
+  const [facturasBusqueda, setFacturasBusqueda] = useState('');
   const [facturasOrdenFecha, setFacturasOrdenFecha] = useState('recientes'); // 'recientes' o 'antiguas'
   const [ordenesBusqueda, setOrdenesBusqueda] = useState('');
   const [ordenesFiltroInicio, setOrdenesFiltroInicio] = useState('');
@@ -568,9 +729,10 @@ function MainApp() {
   const [tipoClienteOpt, setTipoClienteOpt] = useState('EXISTENTE');
   const [busquedaCliente, setBusquedaCliente] = useState('');
   const [busquedaDirectorioClientes, setBusquedaDirectorioClientes] = useState('');
+  const [mostrarTelefonoSecundario, setMostrarTelefonoSecundario] = useState(false);
   const [importacionClientes, setImportacionClientes] = useState({ visible: false, activa: false, porcentaje: 0, procesados: 0, total: 0, etapa: '' });
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null);
-  const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
+  const [formNuevoCliente, setFormNuevoCliente] = useState({ nombre: '', telefono: '', telefono_secundario: '', cedula: '', email: '', direccion: '' });
   
   const [formOrden, setFormOrden] = useState({ 
     tipo_equipo: 'PORTATIL', 
@@ -583,17 +745,50 @@ function MainApp() {
     repuesto_compra_id: ''
   });
 
-  const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', presupuesto: 0, totalPagar: 0, repuestoCompraId: '' });
+  const [editOrdForm, setEditOrdForm] = useState({ estado: '', observacion: '', diagnostico: '', presupuesto: 0, totalPagar: 0, repuestoCompraId: '', clienteNombre: '', clienteTelefono: '', clienteTelefonoSecundario: '', clienteCedula: '', clienteEmail: '', clienteDireccion: '', tipoEquipo: '', marcaModelo: '', serie: '', dejaCargador: false, serieCargador: '', falloReportado: '' });
+
+
+  // Abre el flujo correspondiente sin mezclar la edición de datos de ingreso con Diagnóstico.
+  const abrirEdicionOrden = (orden, modo = 'diagnostico') => {
+    const clienteRelacionado = clientes.find(c =>
+      (orden.cliente_id && String(c.id) === String(orden.cliente_id)) ||
+      (normalizarBusqueda(c.nombre) === normalizarBusqueda(orden.cliente_nombre) && String(c.telefono || '') === String(orden.cliente_telefono || ''))
+    );
+    setModalEditOrdenModo(modo);
+    setModalEditOrden(orden);
+    setEditOrdForm({
+      estado: orden.estado,
+      observacion: '',
+      diagnostico: orden.diagnostico || '',
+      presupuesto: orden.valor_estimado || 0,
+      totalPagar: orden.total_pagar || 0,
+      repuestoCompraId: orden.repuesto_compra_id || '',
+      garantiaAplica: obtenerGarantiaOrden(orden).aplica,
+      garantiaTiempo: obtenerGarantiaOrden(orden).tiempo,
+      clienteNombre: orden.cliente_nombre || '',
+      clienteTelefono: orden.cliente_telefono || '',
+      clienteTelefonoSecundario: clienteRelacionado?.telefono_secundario || '',
+      clienteCedula: clienteRelacionado?.cedula || '',
+      clienteEmail: clienteRelacionado?.email || orden.cliente_email || '',
+      clienteDireccion: clienteRelacionado?.direccion || '',
+      tipoEquipo: orden.tipo_equipo || '',
+      marcaModelo: orden.marca_modelo || '',
+      serie: orden.serie || '',
+      dejaCargador: !!orden.deja_cargador,
+      serieCargador: orden.serie_cargador || '',
+      falloReportado: orden.fallo_reportado || orden.falla_reportado || ''
+    });
+  };
   
   const [tipoClienteVentaOpt, setTipoClienteVentaOpt] = useState('EXISTENTE');
   const [busquedaClienteVenta, setBusquedaClienteVenta] = useState('');
   const [clienteVentaSeleccionado, setClienteVentaSeleccionado] = useState(null);
-  const [formNuevoClienteVenta, setFormNuevoClienteVenta] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
+  const [formNuevoClienteVenta, setFormNuevoClienteVenta] = useState({ nombre: '', telefono: '', telefono_secundario: '', cedula: '', email: '', direccion: '' });
   const [itemsVenta, setItemsVenta] = useState([{ descripcion: '', cantidad: 1, precio: 0 }]);
   const [tipoClienteCot, setTipoClienteCot] = useState('EXISTENTE');
   const [busquedaClienteCot, setBusquedaClienteCot] = useState('');
   const [clienteCotSeleccionado, setClienteCotSeleccionado] = useState(null);
-  const [formNuevoClienteCot, setFormNuevoClienteCot] = useState({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
+  const [formNuevoClienteCot, setFormNuevoClienteCot] = useState({ nombre: '', telefono: '', telefono_secundario: '', cedula: '', email: '', direccion: '' });
   const [tipoCotizacion, setTipoCotizacion] = useState('INDIVIDUAL');
   const [opcionesCotizacion, setOpcionesCotizacion] = useState([[{ descripcion: '', cantidad: 1, precio: 0 }]]);
   const [cotizacionesBusqueda, setCotizacionesBusqueda] = useState('');
@@ -646,20 +841,24 @@ function MainApp() {
   });
 
   const terminoBusquedaDirectorio = normalizarBusqueda(busquedaDirectorioClientes);
+  const digitosBusquedaDirectorio = terminoBusquedaDirectorio.replace(/\D/g, '');
   const clientesFiltradosDirectorio = clientes.filter(c => {
     if (!terminoBusquedaDirectorio) return true;
 
     const nombre = normalizarBusqueda(c.nombre);
     const cedula = normalizarBusqueda(c.cedula);
     const telefono = normalizarBusqueda(c.telefono);
+    const telefonoSecundario = normalizarBusqueda(c.telefono_secundario);
 
     return nombre.includes(terminoBusquedaDirectorio) ||
       cedula.includes(terminoBusquedaDirectorio) ||
-      telefono.includes(terminoBusquedaDirectorio);
+      telefono.includes(terminoBusquedaDirectorio) ||
+      telefonoSecundario.includes(terminoBusquedaDirectorio) ||
+      (digitosBusquedaDirectorio.length > 0 && [c.telefono, c.telefono_secundario].some(t => String(t || '').replace(/\D/g, '').includes(digitosBusquedaDirectorio)));
   });
 
-  const clientesFiltradosBusqueda = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaCliente.toLowerCase()) || String(c.telefono || '').includes(busquedaCliente));
-  const clientesFiltradosVenta = clientes.filter(c => c.nombre.toLowerCase().includes(busquedaClienteVenta.toLowerCase()) || String(c.telefono || '').includes(busquedaClienteVenta));
+  const clientesFiltradosBusqueda = clientes.filter(c => normalizarBusqueda(`${c.nombre} ${c.telefono || ''} ${c.telefono_secundario || ''}`).includes(normalizarBusqueda(busquedaCliente)));
+  const clientesFiltradosVenta = clientes.filter(c => normalizarBusqueda(`${c.nombre} ${c.telefono || ''} ${c.telefono_secundario || ''}`).includes(normalizarBusqueda(busquedaClienteVenta)));
 
   const enviarWhatsApp = (orden, idConsecutivoStr) => {
     const telefono = normalizarTelefonoWhatsApp(orden.cliente_telefono);
@@ -682,13 +881,14 @@ function MainApp() {
       return;
     }
 
-    const encabezados = ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección'];
+    const encabezados = ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección', 'Segundo teléfono'];
     const filas = clientes.map(c => [
       String(c.nombre ?? ''),
       String(c.telefono ?? ''),
       String(c.cedula ?? ''),
       String(c.email ?? ''),
-      String(c.direccion ?? '')
+      String(c.direccion ?? ''),
+      String(c.telefono_secundario ?? '')
     ]);
     const hoja = XLSX.utils.aoa_to_sheet([encabezados, ...filas]);
     hoja['!cols'] = [
@@ -696,7 +896,8 @@ function MainApp() {
       { wch: 18 },
       { wch: 18 },
       { wch: 32 },
-      { wch: 38 }
+      { wch: 38 },
+      { wch: 18 }
     ];
     // Mantiene teléfonos y cédulas como texto para conservar ceros iniciales.
     const rango = XLSX.utils.decode_range(hoja['!ref']);
@@ -718,13 +919,13 @@ function MainApp() {
       alert('No hay contactos para exportar.');
       return;
     }
-    const encabezados = ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección'];
+    const encabezados = ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección', 'Segundo teléfono'];
     const filas = clientes.map(c => [
       String(c.nombre ?? ''), String(c.telefono ?? ''), String(c.cedula ?? ''),
-      String(c.email ?? ''), String(c.direccion ?? '')
+      String(c.email ?? ''), String(c.direccion ?? ''), String(c.telefono_secundario ?? '')
     ]);
     const hoja = XLSX.utils.aoa_to_sheet([encabezados, ...filas]);
-    hoja['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 32 }, { wch: 38 }];
+    hoja['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 32 }, { wch: 38 }, { wch: 18 }];
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, 'Contactos');
     XLSX.writeFile(libro, 'clientes_taller.xls', { bookType: 'biff8' });
@@ -738,8 +939,8 @@ function MainApp() {
     }
     const escaparCSV = valor => `"${String(valor ?? '').replace(/"/g, '""')}"`;
     const filas = [
-      ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección'],
-      ...clientes.map(c => [c.nombre, c.telefono, c.cedula, c.email, c.direccion])
+      ['Nombre', 'Teléfono', 'Cédula', 'Email', 'Dirección', 'Segundo teléfono'],
+      ...clientes.map(c => [c.nombre, c.telefono, c.cedula, c.email, c.direccion, c.telefono_secundario])
     ];
     const csv = '\uFEFF' + filas.map(fila => fila.map(escaparCSV).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -817,6 +1018,7 @@ function MainApp() {
         const cedula = String(fila[2] ?? '').trim();
         const email = String(fila[3] ?? '').trim();
         const direccion = String(fila[4] ?? '').trim();
+        const telefono_secundario = String(fila[5] ?? '').trim() || null;
 
         // Nombre y teléfono son los únicos campos obligatorios.
         if (!nombre || !telefono) {
@@ -831,7 +1033,7 @@ function MainApp() {
         }
 
         if (cedulaNormalizada) cedulasArchivo.add(cedulaNormalizada);
-        nuevosClientes.push({ nombre, telefono, cedula, email, direccion });
+        nuevosClientes.push({ nombre, telefono, telefono_secundario, cedula, email, direccion });
       });
 
       if (!nuevosClientes.length) {
@@ -990,14 +1192,14 @@ function MainApp() {
   const formatoCOP = valor => `$${Number(valor || 0).toLocaleString('es-CO')}`;
 
   return (
-    <div className="app-shell flex min-h-screen bg-slate-950 text-slate-100 font-sans">
+    <div className="app-shell flex min-h-screen bg-transparent text-slate-100 font-sans">
       <style>{`
         /* Identidad visual: elegante, limpia y con movimiento discreto */
         .app-shell {
           background:
             radial-gradient(ellipse at 82% 0%, rgba(8,145,178,.10), transparent 34%),
             radial-gradient(ellipse at 5% 92%, rgba(99,102,241,.08), transparent 30%),
-            #020617;
+            transparent;
           letter-spacing: .005em;
         }
         .app-shell aside {
@@ -1254,7 +1456,7 @@ function MainApp() {
                         <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 max-h-40 overflow-y-auto">
                           {clientesFiltradosBusqueda.length > 0 ? clientesFiltradosBusqueda.map(c => (
                             <div key={c.id} onClick={() => { setClienteSeleccionado(c); setBusquedaCliente(''); }} className="p-2.5 hover:bg-slate-700 cursor-pointer text-xs border-b border-slate-700/50">
-                              <p className="font-bold text-white">{c.nombre}</p><p className="text-[11px] text-indigo-400">Tel: {c.telefono}</p>
+                              <p className="font-bold text-white">{c.nombre}</p><p className="text-[11px] text-indigo-400">Tel: {c.telefono}{c.telefono_secundario ? ` · ${c.telefono_secundario}` : ''}</p>
                             </div>
                           )) : <p className="p-3 text-xs text-slate-500">No se encontraron coincidencias.</p>}
                         </div>
@@ -1273,9 +1475,10 @@ function MainApp() {
                 <div className="space-y-2 pt-2 bg-slate-800/40 p-3 rounded-xl border border-slate-800">
                   <input placeholder="Nombre Completo *" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.nombre} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, nombre: e.target.value })} />
                   <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="Teléfono / WhatsApp *" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.telefono} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono: e.target.value })} />
+                    <div className="flex gap-1"><input placeholder="Teléfono / WhatsApp *" className="min-w-0 flex-1 bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.telefono} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono: e.target.value })} /><button type="button" title="Agregar segundo teléfono" onClick={() => setMostrarTelefonoSecundario(v => !v)} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl px-3 font-black">{mostrarTelefonoSecundario ? '−' : '+'}</button></div>
                     <input placeholder="Cédula" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.cedula} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, cedula: e.target.value })} />
                   </div>
+                  {mostrarTelefonoSecundario && <input placeholder="Segundo teléfono (opcional)" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.telefono_secundario || ''} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono_secundario: e.target.value })} />}
                   <div className="grid grid-cols-2 gap-2">
                     <input placeholder="Correo Electrónico" type="email" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.email} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, email: e.target.value })} />
                     <input placeholder="Dirección" className="bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-xs text-white" value={formNuevoCliente.direccion} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, direccion: e.target.value })} />
@@ -1358,7 +1561,7 @@ function MainApp() {
                   setDocumentoImprimir({ tipo: 'ORDEN', data: nueva, idConsecutivo: idConsecutivoStr });
                   setTab('ordenes');
                   setClienteSeleccionado(null);
-                  setFormNuevoCliente({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' });
+                  setFormNuevoCliente({ nombre: '', telefono: '', telefono_secundario: '', cedula: '', email: '', direccion: '' }); setMostrarTelefonoSecundario(false);
                   setFormOrden({ tipo_equipo: 'PORTATIL', marca_modelo: '', serie: '', fallo_reportado: '', valor_estimado: 0, deja_cargador: false, serie_cargador: '', repuesto_compra_id: '' });
                 }
               }}
@@ -1433,7 +1636,7 @@ function MainApp() {
                           )}
                         </td>
                         <td className="p-3 text-right space-x-1">
-                          {permisos.editar_diagnostico && <button onClick={() => { setModalEditOrden(o); setEditOrdForm({ estado: o.estado, observacion: '', diagnostico: o.diagnostico || '', presupuesto: o.valor_estimado || 0, totalPagar: o.total_pagar || 0, repuestoCompraId: o.repuesto_compra_id || '', garantiaAplica: obtenerGarantiaOrden(o).aplica, garantiaTiempo: obtenerGarantiaOrden(o).tiempo }); }} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">✏️ Diagnóstico</button>}
+                          {permisos.editar_diagnostico && <><button onClick={() => abrirEdicionOrden(o, 'diagnostico')} className="bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-1 rounded text-[11px]">🩺 Diagnóstico</button><button onClick={() => abrirEdicionOrden(o, 'editar')} className="bg-amber-600 hover:bg-amber-500 text-white px-2 py-1 rounded text-[11px]">✏️ Editar</button></>}
                           <button onClick={() => enviarWhatsApp(o, idRegistroConsecutivo)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[11px]">💬 WhatsApp</button>
                           <button onClick={() => setDocumentoImprimir({ tipo: 'ORDEN', data: o, idConsecutivo: idRegistroConsecutivo })} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">🖨️ PDF</button>
                           {(o.estado === 'Reparado / Listo' || o.estado === 'No tiene reparación') && permisos.facturar && <button onClick={() => setModalRemisionarOrden({ orden: o, compraId: o.repuesto_compra_id || '', garantiaAplica: obtenerGarantiaOrden(o).aplica, garantiaTiempo: obtenerGarantiaOrden(o).tiempo })} className="bg-emerald-500 text-white px-2 py-1 rounded text-[11px] font-bold">📄 Remisionar</button>}
@@ -1450,7 +1653,7 @@ function MainApp() {
         {/* 3. CLIENTES */}
         {tab === 'clientes' && permisos.ver_clientes && (
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-            <div className="flex justify-between items-center flex-wrap gap-2"><h2 className="text-xl font-bold text-white">Directorio de Clientes</h2><div className="flex items-center gap-2 flex-wrap"><button onClick={exportarClientesExcel} className="bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📊 Exportar XLSX</button><button onClick={exportarClientesXLS} className="bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📗 Exportar XLS</button><button onClick={exportarClientesCSV} className="bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📄 Exportar CSV</button>{permisos.editar_clientes && <><label className={`bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold ${importacionClientes.activa ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}>📥 {importacionClientes.activa ? 'Importando...' : 'Importar Excel'}<input type="file" accept=".xlsx,.xls,.csv" onChange={importarClientesExcel} className="hidden" disabled={importacionClientes.activa} /></label><button onClick={() => { setModalEditCliente({}); setFormNuevoCliente({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' }); }} className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold">+ Nuevo Cliente</button></>}</div></div>
+            <div className="flex justify-between items-center flex-wrap gap-2"><h2 className="text-xl font-bold text-white">Directorio de Clientes</h2><div className="flex items-center gap-2 flex-wrap"><button onClick={exportarClientesExcel} className="bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📊 Exportar XLSX</button><button onClick={exportarClientesXLS} className="bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📗 Exportar XLS</button><button onClick={exportarClientesCSV} className="bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs">📄 Exportar CSV</button>{permisos.editar_clientes && <><label className={`bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold ${importacionClientes.activa ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}>📥 {importacionClientes.activa ? 'Importando...' : 'Importar Excel'}<input type="file" accept=".xlsx,.xls,.csv" onChange={importarClientesExcel} className="hidden" disabled={importacionClientes.activa} /></label><button onClick={() => { setModalEditCliente({}); setFormNuevoCliente({ nombre: '', telefono: '', telefono_secundario: '', cedula: '', email: '', direccion: '' }); setMostrarTelefonoSecundario(false); }} className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold">+ Nuevo Cliente</button></>}</div></div>
             <p className="text-[11px] text-slate-500">Importa archivos Excel o CSV con las columnas en este orden: Nombre, Teléfono, Cédula, Email y Dirección. Los clientes con cédula repetida se omiten.</p>
             {importacionClientes.visible && (
               <div className="bg-slate-800/70 border border-slate-700 rounded-xl p-4 space-y-2" role="status" aria-live="polite">
@@ -1513,6 +1716,7 @@ function MainApp() {
                           <th className="p-3">Cliente</th>
                           <th className="p-3">Cédula</th>
                           <th className="p-3">Teléfono</th>
+                          <th className="p-3">Segundo teléfono</th>
                           <th className="p-3 text-right">Acciones</th>
                         </tr>
                       </thead>
@@ -1522,8 +1726,9 @@ function MainApp() {
                             <td className="p-3 font-bold text-white">{c.nombre}</td>
                             <td className="p-3 text-slate-300">{c.cedula || '—'}</td>
                             <td className="p-3 text-indigo-400">{c.telefono || '—'}</td>
+                            <td className="p-3 text-indigo-300">{c.telefono_secundario || '—'}</td>
                             <td className="p-3 text-right space-x-1">
-                              {permisos.editar_clientes && <button onClick={() => { setModalEditCliente(c); setFormNuevoCliente({ nombre: c.nombre || '', telefono: c.telefono || '', cedula: c.cedula || '', email: c.email || '', direccion: c.direccion || '' }); }} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">✏️ Editar</button>}
+                              {permisos.editar_clientes && <button onClick={() => { setModalEditCliente(c); setFormNuevoCliente({ nombre: c.nombre || '', telefono: c.telefono || '', telefono_secundario: c.telefono_secundario || '', cedula: c.cedula || '', email: c.email || '', direccion: c.direccion || '' }); setMostrarTelefonoSecundario(!!c.telefono_secundario); }} className="bg-slate-800 text-white px-2 py-1 rounded text-[11px]">✏️ Editar</button>}
                               <button onClick={() => setVerHistorialCliente(c)} className="bg-indigo-600 text-white px-2 py-1 rounded text-[11px]">📜 Historial</button>
                             </td>
                           </tr>
@@ -1559,8 +1764,16 @@ function MainApp() {
               </div>
             </div>
 
-            {/* CONTROLES DE BÚSQUEDA Y ORDENAMIENTO POR FECHA */}
-            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/80 flex flex-wrap gap-3 items-end text-xs">
+            {/* BÚSQUEDA POR CLIENTE Y TELÉFONO + FILTROS DE FECHA */}
+            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/80 space-y-3 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1 font-semibold">🔍 Buscar remisión o venta por nombre o número de teléfono</label>
+                <div className="flex gap-2">
+                  <input type="search" value={facturasBusqueda} onChange={e => setFacturasBusqueda(e.target.value)} placeholder="Nombre del cliente, teléfono principal o secundario, número de remisión..." className="min-w-0 flex-1 bg-slate-800 border border-slate-700 p-2.5 rounded-xl text-white placeholder-slate-500" />
+                  {facturasBusqueda && <button type="button" onClick={() => setFacturasBusqueda('')} className="bg-slate-700 hover:bg-slate-600 text-white px-3 rounded-xl">Limpiar</button>}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3 items-end">
               <div>
                 <label className="text-slate-400 block mb-1 font-semibold">🔍 Desde la fecha</label>
                 <input 
@@ -1600,6 +1813,7 @@ function MainApp() {
                   </button>
                 </div>
               )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1617,10 +1831,21 @@ function MainApp() {
                 <tbody className="divide-y divide-slate-800">
                   {(() => {
                     // Filtrar por rango de fechas si están definidas
+                    const terminoFactura = normalizarBusqueda(facturasBusqueda);
+                    const digitosFactura = terminoFactura.replace(/\D/g, '');
                     const facturasFiltradas = facturas.filter(f => {
                       if (facturasFiltroInicio && f.fecha < facturasFiltroInicio) return false;
                       if (facturasFiltroFin && f.fecha > facturasFiltroFin) return false;
-                      return true;
+                      if (!terminoFactura) return true;
+                      const clienteFactura = clientes.find(c =>
+                        (f.cliente_id && String(c.id) === String(f.cliente_id)) ||
+                        (normalizarBusqueda(c.nombre) === normalizarBusqueda(f.cliente_nombre) &&
+                         (!f.cliente_telefono || String(c.telefono || '') === String(f.cliente_telefono)))
+                      );
+                      const coincideTelefono = digitosFactura.length > 0 && [f.cliente_telefono, clienteFactura?.telefono, clienteFactura?.telefono_secundario].some(t => String(t || '').replace(/\D/g, '').includes(digitosFactura));
+                      return normalizarBusqueda(f.cliente_nombre).includes(terminoFactura) ||
+                        normalizarBusqueda(f.numero_factura).includes(terminoFactura) ||
+                        coincideTelefono;
                     });
 
                     // Ordenar según la selección del usuario
@@ -1686,7 +1911,7 @@ function MainApp() {
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div><h2 className="text-2xl font-black text-white">Cotizador</h2><p className="text-xs text-slate-400 mt-1">Cotizaciones individuales o con varias alternativas para el mismo cliente.</p></div>
-              <button onClick={() => { setCotizacionActiva(null); setClienteCotSeleccionado(null); setTipoClienteCot('EXISTENTE'); setTipoCotizacion('INDIVIDUAL'); setOpcionesCotizacion([[{ descripcion: '', cantidad: 1, precio: 0 }]]); setFormNuevoClienteCot({ nombre: '', telefono: '', cedula: '', email: '', direccion: '' }); }} className="bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 rounded-xl text-xs font-bold">+ Nueva cotización</button>
+              <button onClick={() => { setCotizacionActiva(null); setClienteCotSeleccionado(null); setTipoClienteCot('EXISTENTE'); setTipoCotizacion('INDIVIDUAL'); setOpcionesCotizacion([[{ descripcion: '', cantidad: 1, precio: 0 }]]); setFormNuevoClienteCot({ nombre: '', telefono: '', telefono_secundario: '', cedula: '', email: '', direccion: '' }); setMostrarTelefonoSecundario(false); }} className="bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 rounded-xl text-xs font-bold">+ Nueva cotización</button>
             </div>
             {!cotizacionActiva ? (
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-5">
@@ -1699,8 +1924,8 @@ function MainApp() {
                     <h3 className="font-bold text-indigo-300 text-sm">Cliente</h3>
                     <div className="flex gap-2"><button onClick={() => {setTipoClienteCot('EXISTENTE');setClienteCotSeleccionado(null);}} className={`flex-1 p-2 rounded-lg text-xs font-bold ${tipoClienteCot==='EXISTENTE'?'bg-indigo-600':'bg-slate-800'}`}>Cliente existente</button><button onClick={() => {setTipoClienteCot('NUEVO');setClienteCotSeleccionado(null);}} className={`flex-1 p-2 rounded-lg text-xs font-bold ${tipoClienteCot==='NUEVO'?'bg-indigo-600':'bg-slate-800'}`}>+ Nuevo cliente</button></div>
                     {tipoClienteCot === 'EXISTENTE' ? <>
-                      {!clienteCotSeleccionado ? <><input value={busquedaClienteCot} onChange={e=>setBusquedaClienteCot(e.target.value)} placeholder="Buscar cliente por nombre, cédula o teléfono" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><div className="max-h-40 overflow-auto border border-slate-800 rounded-lg">{clientes.filter(c=>normalizarBusqueda(`${c.nombre} ${c.telefono} ${c.cedula}`).includes(normalizarBusqueda(busquedaClienteCot))).slice(0,30).map(c=><button key={c.id} onClick={()=>{setClienteCotSeleccionado(c);setBusquedaClienteCot('');}} className="block w-full text-left p-2.5 text-xs hover:bg-slate-800 border-b border-slate-800">{c.nombre} · {c.telefono || 'Sin teléfono'} {c.cedula ? `· CC ${c.cedula}` : ''}</button>)}</div></> : <div className="bg-slate-800 p-3 rounded-xl text-xs flex justify-between gap-2"><div><b>{clienteCotSeleccionado.nombre}</b><p className="text-slate-400">{clienteCotSeleccionado.telefono}</p></div><button onClick={()=>setClienteCotSeleccionado(null)} className="text-indigo-300">Cambiar</button></div>}
-                    </> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><input value={formNuevoClienteCot.nombre} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,nombre:e.target.value})} placeholder="Nombre completo *" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.telefono} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,telefono:e.target.value})} placeholder="Teléfono / WhatsApp *" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.cedula} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,cedula:e.target.value})} placeholder="Cédula" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.email} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,email:e.target.value})} placeholder="Correo" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.direccion} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,direccion:e.target.value})} placeholder="Dirección" className="sm:col-span-2 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/></div>}
+                      {!clienteCotSeleccionado ? <><input value={busquedaClienteCot} onChange={e=>setBusquedaClienteCot(e.target.value)} placeholder="Buscar cliente por nombre, cédula o teléfono" className="w-full bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><div className="max-h-40 overflow-auto border border-slate-800 rounded-lg">{clientes.filter(c=>normalizarBusqueda(`${c.nombre} ${c.telefono} ${c.telefono_secundario || ''} ${c.cedula}`).includes(normalizarBusqueda(busquedaClienteCot))).slice(0,30).map(c=><button key={c.id} onClick={()=>{setClienteCotSeleccionado(c);setBusquedaClienteCot('');}} className="block w-full text-left p-2.5 text-xs hover:bg-slate-800 border-b border-slate-800">{c.nombre} · {c.telefono || 'Sin teléfono'} {c.cedula ? `· CC ${c.cedula}` : ''}</button>)}</div></> : <div className="bg-slate-800 p-3 rounded-xl text-xs flex justify-between gap-2"><div><b>{clienteCotSeleccionado.nombre}</b><p className="text-slate-400">{clienteCotSeleccionado.telefono}</p></div><button onClick={()=>setClienteCotSeleccionado(null)} className="text-indigo-300">Cambiar</button></div>}
+                    </> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><input value={formNuevoClienteCot.nombre} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,nombre:e.target.value})} placeholder="Nombre completo *" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><div className="flex gap-1"><input value={formNuevoClienteCot.telefono} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,telefono:e.target.value})} placeholder="Teléfono / WhatsApp *" className="min-w-0 flex-1 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><button type="button" title="Agregar segundo teléfono" onClick={()=>setMostrarTelefonoSecundario(v=>!v)} className="bg-indigo-600 text-white rounded-lg px-3 font-black">{mostrarTelefonoSecundario?'−':'+'}</button></div>{mostrarTelefonoSecundario && <input value={formNuevoClienteCot.telefono_secundario || ''} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,telefono_secundario:e.target.value})} placeholder="Segundo teléfono (opcional)" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/>}<input value={formNuevoClienteCot.cedula} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,cedula:e.target.value})} placeholder="Cédula" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.email} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,email:e.target.value})} placeholder="Correo" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input value={formNuevoClienteCot.direccion} onChange={e=>setFormNuevoClienteCot({...formNuevoClienteCot,direccion:e.target.value})} placeholder="Dirección" className="sm:col-span-2 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/></div>}
                   </div>
                   <div className="space-y-2"><h3 className="font-bold text-indigo-300 text-sm">Datos de cotización</h3><p className="text-xs text-slate-400">Número consecutivo independiente: lo genera el sistema al guardar. Cada opción puede contener varios productos o servicios y sus cantidades y precios.</p><label className="block text-xs text-slate-400">Vigencia (opcional)</label><input id="vigenciaCotizacion" type="date" className="bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/></div>
                 </div>
@@ -1708,7 +1933,7 @@ function MainApp() {
                   {(tipoCotizacion==='INDIVIDUAL' ? opcionesCotizacion.slice(0,1) : opcionesCotizacion).map((items,oi)=><div key={oi} className="border border-slate-700 rounded-xl p-4 space-y-3"><div className="flex items-center justify-between"><h3 className="font-bold text-white">{tipoCotizacion==='MULTIPLE'?`Opción ${oi+1}`:'Detalle de cotización'}</h3><button onClick={()=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi? [...op,{descripcion:'',cantidad:1,precio:0}]:op))} className="text-indigo-300 text-xs font-bold">+ Agregar producto/servicio</button></div>{items.map((it,ii)=><div key={ii} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center"><input value={it.descripcion} onChange={e=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi?op.map((x,j)=>j===ii?{...x,descripcion:e.target.value}:x):op))} placeholder="Descripción del producto o servicio *" className="sm:col-span-6 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input type="number" min="1" value={it.cantidad} onChange={e=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi?op.map((x,j)=>j===ii?{...x,cantidad:Math.max(1,Number(e.target.value)||1)}:x):op))} placeholder="Cant." className="sm:col-span-2 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><input type="number" min="0" value={it.precio} onChange={e=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi?op.map((x,j)=>j===ii?{...x,precio:Math.max(0,Number(e.target.value)||0)}:x):op))} placeholder="Precio unitario" className="sm:col-span-3 bg-slate-800 border border-slate-700 p-2.5 rounded-lg text-xs"/><button onClick={()=>setOpcionesCotizacion(prev=>prev.map((op,i)=>i===oi?op.filter((_,j)=>j!==ii).length?op.filter((_,j)=>j!==ii):[{descripcion:'',cantidad:1,precio:0}]:op))} className="sm:col-span-1 text-rose-400 text-xs">✕</button><div className="sm:col-span-12 text-right text-xs text-slate-400">Subtotal: $ {(Number(it.cantidad||0)*Number(it.precio||0)).toLocaleString('es-CO')}</div></div>)}<div className="text-right text-emerald-300 font-black">Total opción: $ {items.reduce((sum,it)=>sum+Number(it.cantidad||0)*Number(it.precio||0),0).toLocaleString('es-CO')}</div></div>)}
                   {tipoCotizacion==='MULTIPLE' && <button onClick={()=>setOpcionesCotizacion(prev=>[...prev,[{descripcion:'',cantidad:1,precio:0}]])} className="border border-dashed border-indigo-500 text-indigo-300 rounded-xl p-3 w-full text-xs font-bold">+ Agregar otra opción a esta cotización</button>}
                 </div>
-                <div className="flex justify-end"><button disabled={guardandoCotizacion} onClick={async()=>{let cli=clienteCotSeleccionado;if(tipoClienteCot==='NUEVO'){if(!formNuevoClienteCot.nombre.trim()||!formNuevoClienteCot.telefono.trim()){alert('Ingresa nombre y teléfono del nuevo cliente.');return;}cli=await agregarCliente({nombre:formNuevoClienteCot.nombre.trim(),telefono:formNuevoClienteCot.telefono.trim(),cedula:formNuevoClienteCot.cedula.trim(),email:formNuevoClienteCot.email.trim(),direccion:formNuevoClienteCot.direccion.trim()});if(!cli)return;}if(!cli){alert('Selecciona un cliente o registra uno nuevo.');return;}const ops=(tipoCotizacion==='INDIVIDUAL' ? opcionesCotizacion.slice(0,1) : opcionesCotizacion).map((items,i)=>({nombre:`Opción ${i+1}`,items:items.filter(x=>x.descripcion.trim()).map(x=>({...x,cantidad:Number(x.cantidad)||1,precio:Number(x.precio)||0,subtotal:(Number(x.cantidad)||1)*(Number(x.precio)||0)})),total:items.filter(x=>x.descripcion.trim()).reduce((sum,x)=>sum+(Number(x.cantidad)||1)*(Number(x.precio)||0),0)}));if(ops.some(o=>!o.items.length)){alert('Cada opción debe tener al menos un producto o servicio con descripción.');return;}setGuardandoCotizacion(true);try{const maxNum=cotizaciones.reduce((m,c)=>Math.max(m,Number(String(c.numero_cotizacion||'').replace(/\D/g,''))||0),0);const numero=`COT-${String(maxNum+1).padStart(5,'0')}`;const nueva={numero_cotizacion:numero,cliente_id:cli.id,cliente_nombre:cli.nombre,cliente_telefono:cli.telefono,cliente_cedula:cli.cedula||'',cliente_email:cli.email||'',cliente_direccion:cli.direccion||'',tipo:tipoCotizacion,opciones:ops,vigencia:document.getElementById('vigenciaCotizacion')?.value||null,usuario_creador:usuarioSesion?.nombre||'Sistema',fecha:new Date().toISOString()};const {data,error}=await supabase.from('cotizaciones').insert([nueva]).select();if(error)throw error;setCotizaciones(prev=>[data[0],...prev]);setCotizacionActiva(data[0]);alert(`Cotización ${numero} guardada correctamente.`);}catch(err){console.error(err);alert('No se pudo guardar la cotización. Verifica que hayas creado la tabla cotizaciones en Supabase y sus permisos.');}finally{setGuardandoCotizacion(false);}}} className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-5 py-3 rounded-xl text-xs font-black">{guardandoCotizacion?'Guardando...':'Guardar cotización'}</button></div>
+                <div className="flex justify-end"><button disabled={guardandoCotizacion} onClick={async()=>{let cli=clienteCotSeleccionado;if(tipoClienteCot==='NUEVO'){if(!formNuevoClienteCot.nombre.trim()||!formNuevoClienteCot.telefono.trim()){alert('Ingresa nombre y teléfono del nuevo cliente.');return;}cli=await agregarCliente({nombre:formNuevoClienteCot.nombre.trim(),telefono:formNuevoClienteCot.telefono.trim(),cedula:formNuevoClienteCot.cedula.trim(),email:formNuevoClienteCot.email.trim(),direccion:formNuevoClienteCot.direccion.trim(),telefono_secundario:formNuevoClienteCot.telefono_secundario?.trim() || null});if(!cli)return;}if(!cli){alert('Selecciona un cliente o registra uno nuevo.');return;}const ops=(tipoCotizacion==='INDIVIDUAL' ? opcionesCotizacion.slice(0,1) : opcionesCotizacion).map((items,i)=>({nombre:`Opción ${i+1}`,items:items.filter(x=>x.descripcion.trim()).map(x=>({...x,cantidad:Number(x.cantidad)||1,precio:Number(x.precio)||0,subtotal:(Number(x.cantidad)||1)*(Number(x.precio)||0)})),total:items.filter(x=>x.descripcion.trim()).reduce((sum,x)=>sum+(Number(x.cantidad)||1)*(Number(x.precio)||0),0)}));if(ops.some(o=>!o.items.length)){alert('Cada opción debe tener al menos un producto o servicio con descripción.');return;}setGuardandoCotizacion(true);try{const maxNum=cotizaciones.reduce((m,c)=>Math.max(m,Number(String(c.numero_cotizacion||'').replace(/\D/g,''))||0),0);const numero=`COT-${String(maxNum+1).padStart(5,'0')}`;const nueva={numero_cotizacion:numero,cliente_id:cli.id,cliente_nombre:cli.nombre,cliente_telefono:cli.telefono,cliente_cedula:cli.cedula||'',cliente_email:cli.email||'',cliente_direccion:cli.direccion||'',tipo:tipoCotizacion,opciones:ops,vigencia:document.getElementById('vigenciaCotizacion')?.value||null,usuario_creador:usuarioSesion?.nombre||'Sistema',fecha:new Date().toISOString()};const {data,error}=await supabase.from('cotizaciones').insert([nueva]).select();if(error)throw error;setCotizaciones(prev=>[data[0],...prev]);setCotizacionActiva(data[0]);alert(`Cotización ${numero} guardada correctamente.`);}catch(err){console.error(err);alert('No se pudo guardar la cotización. Verifica que hayas creado la tabla cotizaciones en Supabase y sus permisos.');}finally{setGuardandoCotizacion(false);}}} className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-5 py-3 rounded-xl text-xs font-black">{guardandoCotizacion?'Guardando...':'Guardar cotización'}</button></div>
               </div>
             ) : (
               <div className="bg-white text-slate-900 rounded-2xl p-8 max-w-4xl mx-auto space-y-5" id="documento-cotizacion">
@@ -2045,16 +2270,33 @@ function MainApp() {
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-50 no-imprimir">
           <div className="bg-slate-900 border border-slate-800 w-full max-w-lg p-6 rounded-2xl space-y-3 max-h-[90vh] overflow-y-auto">
             <div className="space-y-1 border-b border-slate-700 pb-3">
-              <h3 className="font-bold text-white text-base">Modificar Orden {obtenerIdRegistroOrden(modalEditOrden)}</h3>
+              <h3 className="font-bold text-white text-base">{modalEditOrdenModo === 'editar' ? 'Editar datos de la Orden' : 'Diagnóstico de la Orden'} {obtenerIdRegistroOrden(modalEditOrden)}</h3>
               <p className="text-sm font-semibold text-indigo-300">Cliente: {modalEditOrden.cliente_nombre || 'Sin nombre registrado'}</p>
               <p className="text-xs text-slate-300">Equipo: {modalEditOrden.tipo_equipo || 'Equipo'} {modalEditOrden.marca_modelo || 'Marca/modelo no registrado'}</p>
             </div>
 
-            <div className="bg-amber-950/30 p-3 rounded-xl border border-amber-700/60 space-y-1">
-              <p className="text-xs font-bold text-amber-300">Fallo reportado al ingresar</p>
-              <p className="text-xs text-slate-100 whitespace-pre-wrap break-words">{modalEditOrden.fallo_reportado || modalEditOrden.falla_reportado || 'No se registró un fallo reportado para esta orden.'}</p>
+            {modalEditOrdenModo === 'editar' && (
+            <div className="bg-indigo-950/30 p-3 rounded-xl border border-indigo-700/60 space-y-2">
+              <p className="text-xs font-bold text-indigo-300">Corregir datos de ingreso (si hubo error de digitación)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input value={editOrdForm.clienteNombre || ''} onChange={e => setEditOrdForm({ ...editOrdForm, clienteNombre: e.target.value })} placeholder="Nombre del cliente" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white" />
+                <input value={editOrdForm.clienteTelefono || ''} onChange={e => setEditOrdForm({ ...editOrdForm, clienteTelefono: e.target.value })} placeholder="Teléfono principal" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white" />
+                <input value={editOrdForm.clienteTelefonoSecundario || ''} onChange={e => setEditOrdForm({ ...editOrdForm, clienteTelefonoSecundario: e.target.value })} placeholder="Segundo teléfono (opcional)" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white sm:col-span-2" />
+                <input value={editOrdForm.clienteCedula || ''} onChange={e => setEditOrdForm({ ...editOrdForm, clienteCedula: e.target.value })} placeholder="Cédula del cliente" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white" />
+                <input value={editOrdForm.clienteEmail || ''} onChange={e => setEditOrdForm({ ...editOrdForm, clienteEmail: e.target.value })} placeholder="Correo del cliente" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white" />
+                <input value={editOrdForm.clienteDireccion || ''} onChange={e => setEditOrdForm({ ...editOrdForm, clienteDireccion: e.target.value })} placeholder="Dirección del cliente" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white sm:col-span-2" />
+                <input value={editOrdForm.tipoEquipo || ''} onChange={e => setEditOrdForm({ ...editOrdForm, tipoEquipo: e.target.value })} placeholder="Tipo de equipo" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white" />
+                <input value={editOrdForm.marcaModelo || ''} onChange={e => setEditOrdForm({ ...editOrdForm, marcaModelo: e.target.value })} placeholder="Marca / modelo" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white" />
+                <input value={editOrdForm.serie || ''} onChange={e => setEditOrdForm({ ...editOrdForm, serie: e.target.value })} placeholder="Número de serie" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white" />
+                <label className="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={!!editOrdForm.dejaCargador} onChange={e => setEditOrdForm({ ...editOrdForm, dejaCargador: e.target.checked, serieCargador: e.target.checked ? (editOrdForm.serieCargador || '') : '' })} /> Deja cargador</label>
+                {editOrdForm.dejaCargador && <input value={editOrdForm.serieCargador || ''} onChange={e => setEditOrdForm({ ...editOrdForm, serieCargador: e.target.value })} placeholder="Serie del cargador" className="bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white sm:col-span-2" />}
+                <div className="sm:col-span-2"><label className="text-[11px] text-amber-300 block mb-1">Fallo reportado al ingresar</label><textarea value={editOrdForm.falloReportado || ''} onChange={e => setEditOrdForm({ ...editOrdForm, falloReportado: e.target.value })} rows={3} className="w-full bg-slate-800 border border-slate-700 p-2 rounded-lg text-xs text-white" /></div>
+              </div>
+              <p className="text-[10px] text-slate-400">Estos cambios actualizan la orden. Si el cliente coincide con un registro del directorio por nombre y teléfono originales, también se corregirá su ficha.</p>
             </div>
+            )}
             
+            {modalEditOrdenModo === 'diagnostico' && (<>
             <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700 max-h-36 overflow-y-auto space-y-1 text-xs">
               <p className="font-bold text-indigo-400">Historial de Avances Anteriores:</p>
               {(Array.isArray(modalEditOrden.observaciones) ? modalEditOrden.observaciones.filter(obs => !obs || obs._tipo !== 'garantia') : []).length > 0 ? (
@@ -2126,13 +2368,30 @@ function MainApp() {
               </div>
             </div>
 
+            </>)}
+
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setModalEditOrden(null)} className="text-xs text-slate-400 px-3">Cancelar</button>
               <button onClick={async () => {
-                if (editOrdForm.garantiaAplica && !String(editOrdForm.garantiaTiempo || '').trim()) return alert('Escribe el tiempo de garantía o desmarca la casilla.');
-                await actualizarOrden(modalEditOrden.id, editOrdForm.estado, editOrdForm.observacion, editOrdForm.diagnostico, editOrdForm.presupuesto, editOrdForm.totalPagar, editOrdForm.repuestoCompraId, null, editOrdForm.garantiaAplica, editOrdForm.garantiaTiempo);
-                setModalEditOrden(null); 
-              }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">Guardar Cambios</button>
+                if (modalEditOrdenModo === 'editar') {
+                  if (!String(editOrdForm.clienteNombre || '').trim() || !String(editOrdForm.clienteTelefono || '').trim()) return alert('El nombre y el teléfono principal del cliente son obligatorios.');
+                  const datosCorreccion = { cliente_nombre: String(editOrdForm.clienteNombre).trim(), cliente_telefono: String(editOrdForm.clienteTelefono).trim(), cliente_email: String(editOrdForm.clienteEmail || '').trim(), tipo_equipo: String(editOrdForm.tipoEquipo || '').trim(), marca_modelo: String(editOrdForm.marcaModelo || '').trim(), serie: String(editOrdForm.serie || '').trim(), deja_cargador: !!editOrdForm.dejaCargador, serie_cargador: editOrdForm.dejaCargador ? String(editOrdForm.serieCargador || '').trim() : '', fallo_reportado: String(editOrdForm.falloReportado || '').trim() };
+                  const clienteOriginal = clientes.find(c => (modalEditOrden.cliente_id && String(c.id) === String(modalEditOrden.cliente_id)) || (normalizarBusqueda(c.nombre) === normalizarBusqueda(modalEditOrden.cliente_nombre) && String(c.telefono || '') === String(modalEditOrden.cliente_telefono || '')));
+                  const ordenActualizada = await actualizarOrden(modalEditOrden.id, modalEditOrden.estado, '', modalEditOrden.diagnostico, modalEditOrden.valor_estimado, modalEditOrden.total_pagar, modalEditOrden.repuesto_compra_id, null, undefined, undefined, datosCorreccion);
+                  if (!ordenActualizada) return;
+                  if (clienteOriginal) {
+                    const clienteActualizado = await modificarCliente(clienteOriginal.id, { nombre: datosCorreccion.cliente_nombre, telefono: datosCorreccion.cliente_telefono, telefono_secundario: String(editOrdForm.clienteTelefonoSecundario || '').trim() || null, cedula: String(editOrdForm.clienteCedula || '').trim(), email: String(editOrdForm.clienteEmail || '').trim(), direccion: String(editOrdForm.clienteDireccion || '').trim() });
+                    if (clienteActualizado === false) return;
+                  }
+                  alert('Datos de ingreso corregidos correctamente.');
+                } else {
+                  if (editOrdForm.garantiaAplica && !String(editOrdForm.garantiaTiempo || '').trim()) return alert('Escribe el tiempo de garantía o desmarca la casilla.');
+                  const ordenActualizada = await actualizarOrden(modalEditOrden.id, editOrdForm.estado, editOrdForm.observacion, editOrdForm.diagnostico, editOrdForm.presupuesto, editOrdForm.totalPagar, editOrdForm.repuestoCompraId, null, editOrdForm.garantiaAplica, editOrdForm.garantiaTiempo);
+                  if (!ordenActualizada) return;
+                  alert('Diagnóstico actualizado correctamente.');
+                }
+                setModalEditOrden(null);
+              }} className="bg-indigo-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold">{modalEditOrdenModo === 'editar' ? 'Guardar Correcciones' : 'Guardar Diagnóstico'}</button>
             </div>
           </div>
         </div>
@@ -2143,7 +2402,8 @@ function MainApp() {
           <div className="bg-slate-900 border border-slate-800 w-full max-w-md p-6 rounded-2xl space-y-3">
             <h3 className="font-bold text-white text-base">{modalEditCliente.id ? 'Modificar Cliente' : 'Nuevo Cliente'}</h3>
             <input placeholder="Nombre *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.nombre} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, nombre: e.target.value })} />
-            <input placeholder="Teléfono *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.telefono} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono: e.target.value })} />
+            <div className="flex gap-1"><input placeholder="Teléfono *" className="min-w-0 flex-1 bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.telefono} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono: e.target.value })} /><button type="button" title="Agregar segundo teléfono" onClick={() => setMostrarTelefonoSecundario(v => !v)} className="bg-indigo-600 text-white rounded-xl px-3 font-black">{mostrarTelefonoSecundario ? '−' : '+'}</button></div>
+            {mostrarTelefonoSecundario && <input placeholder="Segundo teléfono (opcional)" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.telefono_secundario || ''} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, telefono_secundario: e.target.value })} />}
             <input placeholder="Cédula" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.cedula} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, cedula: e.target.value })} />
             <input placeholder="Correo Electrónico" type="email" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.email} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, email: e.target.value })} />
             <input placeholder="Dirección" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-xs text-white" value={formNuevoCliente.direccion} onChange={e => setFormNuevoCliente({ ...formNuevoCliente, direccion: e.target.value })} />
@@ -2230,9 +2490,10 @@ function MainApp() {
                 <div className="space-y-2 pt-1 bg-slate-800/40 p-3 rounded-xl border border-slate-800 text-xs">
                   <input placeholder="Nombre Completo *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.nombre} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, nombre: e.target.value })} />
                   <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="Teléfono / WhatsApp *" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} />
+                    <div className="flex gap-1"><input placeholder="Teléfono / WhatsApp *" className="min-w-0 flex-1 bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono: e.target.value })} /><button type="button" title="Agregar segundo teléfono" onClick={() => setMostrarTelefonoSecundario(v => !v)} className="bg-indigo-600 text-white rounded-xl px-3 font-black">{mostrarTelefonoSecundario ? '−' : '+'}</button></div>
                     <input placeholder="Cédula" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.cedula} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, cedula: e.target.value })} />
                   </div>
+                  {mostrarTelefonoSecundario && <input placeholder="Segundo teléfono (opcional)" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.telefono_secundario || ''} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, telefono_secundario: e.target.value })} />}
                   <div className="grid grid-cols-2 gap-2">
                     <input placeholder="Correo Electrónico" type="email" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.email} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, email: e.target.value })} />
                     <input placeholder="Dirección" className="w-full bg-slate-800 border border-slate-700 p-2 rounded-xl text-white" value={formNuevoClienteVenta.direccion} onChange={e => setFormNuevoClienteVenta({ ...formNuevoClienteVenta, direccion: e.target.value })} />
@@ -2788,7 +3049,7 @@ function PortalPublico() {
   const [mostrarHistorialPortal, setMostrarHistorialPortal] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-slate-100 font-sans">
+    <div className="min-h-screen bg-transparent flex flex-col items-center justify-center p-4 text-slate-100 font-sans">
       <div className="max-w-xl w-full mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl text-center space-y-4">
         {empresa.logoUrl ? (
           <img src={empresa.logoUrl} alt="Logo" className="w-32 h-32 object-contain mx-auto rounded-xl bg-slate-800 p-2 border border-slate-700 shadow-lg" />
@@ -2888,7 +3149,18 @@ function AppContent() {
 export default function App() {
   return (
     <AppProvider>
-      <AppContent />
+      <div
+        style={{
+          position: "relative",
+          isolation: "isolate",
+          minHeight: "100vh",
+        }}
+      >
+        <InteractiveBackground />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <AppContent />
+        </div>
+      </div>
     </AppProvider>
   );
 }
